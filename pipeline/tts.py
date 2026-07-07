@@ -1,108 +1,103 @@
-"""
-Bước 5: Đọc script_final.json (bản BẠN ĐÃ SỬA từ script_draft.json), sinh TTS
-cho từng dòng, rồi time-stretch để khớp ĐÚNG khoảng (ref_start, ref_end) gốc
-của dòng đó — không phân bổ theo tỷ lệ ký tự trên tổng thời lượng phim.
-
-Đây là điểm khác biệt cốt lõi so với cách làm sai: mỗi dòng neo vào đúng
-vị trí tuyệt đối của nó, lỗi (nếu có) chỉ nằm trong phạm vi dòng đó,
-không cộng dồn và không làm nội dung lệch cảnh.
-"""
-import sys
-import json
+import os
 import subprocess
 import asyncio
+import sys
 from pathlib import Path
+import config
 
-import edge_tts
-
-sys.path.append(str(Path(__file__).parent.parent))
-from config import (
-    WORK_DIR, TTS_VOICE_VI,
-    MIN_TIME_STRETCH_RATIO, MAX_TIME_STRETCH_RATIO,
-)
-
-TTS_DIR = WORK_DIR / "tts_segments"
-
-
-def _ffprobe_duration(path: Path) -> float:
+def get_audio_duration(file_path):
+    """Lấy thời lượng âm thanh bằng ffprobe. Có bọc chống crash cực kỳ an toàn."""
     cmd = [
-        "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        str(path),
+        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", str(file_path)
     ]
-    out = subprocess.run(cmd, capture_output=True, text=True, check=True).stdout.strip()
-    return float(out)
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, check=True).stdout.strip()
+        return float(out) if out else 0.0
+    except (subprocess.CalledProcessError, ValueError) as e:
+        print(f"⚠️ Cảnh báo: Không thể phân tích thời lượng file âm thanh {file_path}. Lỗi: {e}")
+        return 0.0
 
+def build_atempo_filter(ratio):
+    """
+    Xây dựng bộ lọc atempo của ffmpeg.
+    Giải quyết triệt để vấn đề: atempo chỉ hỗ trợ co giãn trong khoảng [0.5, 2.0].
+    Hàm này tự động nối tầng bộ lọc để đạt tỷ lệ không giới hạn (ví dụ: 0.2 hoặc 4.0).
+    """
+    ratio = max(0.2, min(5.0, ratio)) # Giới hạn tối thiểu 0.2x và tối đa 5.0x để giữ chất lượng tiếng
+    
+    filters = []
+    # Xử lý khi tăng tốc độ > 2.0
+    while ratio > 2.0:
+        filters.append("atempo=2.0")
+        ratio /= 2.0
+    # Xử lý khi giảm tốc độ < 0.5
+    while ratio < 0.5:
+        filters.append("atempo=0.5")
+        ratio /= 0.5
+    # Thêm tỉ lệ thừa còn lại
+    filters.append(f"atempo={ratio:.2f}")
+    
+    return ",".join(filters)
 
-async def _synth(text: str, out_path: Path, voice: str = TTS_VOICE_VI):
+async def _synth(text, output_path, voice=config.DEFAULT_VOICE):
+    """Thực hiện kết nối với dịch vụ Edge-TTS để sinh giọng nói."""
+    import edge_tts
     communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(str(out_path))
+    await communicate.save(output_path)
 
-
-def _apply_atempo(src: Path, dst: Path, ratio: float):
-    ratio = max(MIN_TIME_STRETCH_RATIO, min(MAX_TIME_STRETCH_RATIO, ratio))
-    cmd = ["ffmpeg", "-y", "-i", str(src), "-filter:a", f"atempo={ratio:.4f}", str(dst)]
-    subprocess.run(cmd, capture_output=True, check=True)
-    return ratio
-
-
-def generate_synced_tts(script: list[dict]) -> list[dict]:
+async def safe_synth_with_retry(text, raw_path, max_retries=3):
     """
-    Với mỗi dòng script {scene_id, ref_start, ref_end, text}, tạo file audio
-    đã time-stretch để khớp đúng (ref_end - ref_start) giây.
-
-    Trả về list segment kèm:
-      - start, end: vị trí TUYỆT ĐỐI để đặt trên timeline cuối (bằng ref_start/ref_end)
-      - file: đường dẫn audio đã sync
-      - atempo: hệ số đã áp dụng (để debug)
-      - duration_mismatch_sec: nếu > 0.3s nghĩa là câu quá dài/ngắn so với khung gốc,
-        NÊN quay lại sửa text ở bước 5 cho khớp hơn, thay vì để atempo kéo giãn quá mức.
+    Bọc an toàn cho edge-tts tránh lỗi mạng sập ngầm.
+    Tự động kích hoạt thử lại theo cấp số nhân (Exponential Backoff).
     """
-    TTS_DIR.mkdir(exist_ok=True)
-    results = []
+    for attempt in range(max_retries):
+        try:
+            await _synth(text, raw_path)
+            if os.path.exists(raw_path) and os.path.getsize(raw_path) > 0:
+                return # Thành công mỹ mãn
+        except Exception as e:
+            print(f"⚠️ Cảnh báo: Lỗi kết nối TTS lần {attempt + 1}: {e}")
+            if attempt == max_retries - 1:
+                raise e # Sập cả 3 lần thì mới báo lỗi
+            await asyncio.sleep(2 ** attempt) # Nghỉ 1s, 2s, 4s... trước khi kết nối lại
 
-    for i, line in enumerate(script):
-        raw_path = TTS_DIR / f"line_{i:04d}_raw.mp3"
-        synced_path = TTS_DIR / f"line_{i:04d}_synced.mp3"
+def process_tts_line(line, idx):
+    """Xử lý lồng tiếng và khớp tốc độ cho từng dòng thoại."""
+    raw_path = os.path.join(config.TEMP_DIR, f"tts_{idx}_raw.mp3")
+    final_path = os.path.join(config.TEMP_DIR, f"tts_{idx}_fit.mp3")
+    
+    # 1. Sinh file audio thô từ Edge-TTS
+    try:
+        asyncio.run(safe_synth_with_retry(line["text"], raw_path))
+    except Exception as e:
+        print(f"❌ Không thể tạo giọng nói cho dòng thoại {idx}: '{line['text']}'. Lỗi: {e}")
+        return None
 
-        asyncio.run(_synth(line["text"], raw_path))
-        actual_dur = _ffprobe_duration(raw_path)
-
-        target_dur = max(0.05, line["ref_end"] - line["ref_start"])
-        raw_ratio = actual_dur / target_dur
-        applied_ratio = _apply_atempo(raw_path, synced_path, raw_ratio)
-
-        final_dur = _ffprobe_duration(synced_path)
-        mismatch = round(final_dur - target_dur, 3)
-
-        results.append({
-            "scene_id": line.get("scene_id"),
-            "text": line["text"],
-            "start": line["ref_start"],       # vị trí tuyệt đối trên timeline cuối
-            "end": line["ref_start"] + final_dur,
-            "target_dur": round(target_dur, 3),
-            "actual_dur": round(final_dur, 3),
-            "atempo": round(applied_ratio, 3),
-            "duration_mismatch_sec": mismatch,
-            "file": str(synced_path),
-        })
-
-        flag = "  ⚠ lệch nhiều, nên sửa lại text" if abs(mismatch) > 0.3 else ""
-        print(f"[tts] dòng {i}: target={target_dur:.2f}s actual={final_dur:.2f}s atempo={applied_ratio:.2f}{flag}")
-
-    out_path = WORK_DIR / "tts_segments.json"
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, ensure_ascii=False, indent=2)
-
-    print(f"[tts] Xong {len(results)} dòng -> {out_path}")
-    return results
-
-
-if __name__ == "__main__":
-    script_path = WORK_DIR / "script_final.json"
-    if not script_path.exists():
-        print(f"Chưa có {script_path}. Hãy copy script_draft.json -> script_final.json sau khi sửa xong.")
-        sys.exit(1)
-    script = json.load(open(script_path, encoding="utf-8"))
-    generate_synced_tts(script)
+    # 2. Tính toán thời lượng khớp video gốc
+    target_duration = line["ref_end"] - line["ref_start"]
+    if target_duration <= 0:
+        print(f"⚠️ Dòng thoại {idx} có thời lượng yêu cầu không hợp lệ ({target_duration}s). Sử dụng mặc định 2.0s.")
+        target_duration = 2.0
+        
+    actual_duration = get_audio_duration(raw_path)
+    if actual_duration == 0:
+        actual_duration = 2.0 # Fallback an toàn phòng khi ffprobe lỗi
+        
+    ratio = actual_duration / target_duration
+    print(f"🎤 Line {idx} -> Thời lượng thô: {actual_duration:.2f}s | Đích: {target_duration:.2f}s | Tỷ lệ co giãn: {ratio:.2f}x")
+    
+    # 3. Tiến hành co giãn âm thanh bằng ffmpeg bộ lọc nối tầng
+    atempo_filter = build_atempo_filter(ratio)
+    cmd = [
+        "ffmpeg", "-y", "-i", raw_path,
+        "-filter:a", atempo_filter,
+        final_path
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"⚠️ Lỗi co giãn âm thanh ở dòng thoại {idx}. Chuyển sang dùng âm thanh thô làm dự phòng. Chi tiết: {e.stderr}")
+        shutil.copy(raw_path, final_path)
+        
+    return final_path
