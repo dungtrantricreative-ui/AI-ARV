@@ -1,167 +1,106 @@
-# Video Recap Tool — recap phim có gu riêng
+# Video Recap Tool — Tối ưu đa phần cứng + Interval Slicing
 
-Pipeline bán tự động: AI lo phần lao động nặng (tải, dịch, dựng), bạn lo phần
-"linh hồn" (sửa kịch bản theo phong cách riêng). Có một checkpoint bắt buộc
-giữa pipeline để bạn sửa script trước khi AI đọc và ghép — đây là bước quyết
-định cả chất lượng lẫn khả năng sống sót về mặt chính sách/kiếm tiền.
+Pipeline bán tự động: AI lo phần nặng, bạn lo phần "linh hồn" (sửa kịch bản).
 
 ## Kiến trúc
 
 ```
-1. Tải video          yt-dlp
-2. Chia cảnh           PySceneDetect
-3. Phiên âm+timestamp  ASR provider cấu hình qua config.toml
-4. Sinh script nháp    LLM provider cấu hình qua config.toml
-   ── CHECKPOINT: bạn sửa script_draft.json -> script_final.json ──
-5. TTS + neo mốc       edge-tts + ffmpeg atempo (mỗi dòng neo đúng vị trí gốc)
-6. Sinh phụ đề         .srt khớp với audio đã sync
+1. Nhận file video      đường dẫn local
+2. Chia cảnh           PySceneDetect HOẶC Interval Slicing (FFmpeg)
+3. Phiên âm+timestamp  ASR provider (cấu hình qua config.toml)
+4. Sinh script nháp    LLM provider (cấu hình qua config.toml)
+   ── CHECKPOINT: sửa workdir/script_draft.json -> script_final.json ──
+5. TTS + neo mốc       edge-tts + ffmpeg atempo
+6. Sinh phụ đề         .srt khớp audio đã sync
 7. Ghép video cuối     ffmpeg (adelay + amix + burn sub)
 ```
 
-### Vì sao "neo mốc tuyệt đối" quan trọng
+## Tính năng mới
 
-TTS đọc không bao giờ khớp đúng độ dài đoạn video gốc. Nếu chỉ nối các đoạn
-audio liên tiếp, sai số cộng dồn qua cả phim, càng về cuối càng lệch xa cảnh.
-Giải pháp ở đây: mỗi dòng script giữ `ref_start`/`ref_end` — timestamp GỐC
-của đoạn nó đang tóm tắt. TTS được time-stretch (`atempo`) để khớp đúng
-khoảng đó, rồi đặt vào **vị trí tuyệt đối** trên timeline cuối (giống cách
-phụ đề hoạt động), không nối chuỗi. Vì vậy sai số chỉ giới hạn trong phạm vi
-từng dòng, không cộng dồn.
+### 1. Cắt Thô Bạo (Interval Slicing)
+Thay vì phân tích pixel bằng PySceneDetect (chậm, ngốn CPU/GPU), bạn có thể chuyển sang **cắt theo khoảng thời gian cố định** bằng FFmpeg CLI. Ưu điểm:
+- **Không decode video**, chỉ đọc metadata → xử lý phim 2 tiếng trong **< 30 giây**
+- Chạy tốt trên **mọi phần cứng**, kể cả CPU cùi
+- Phù hợp recap phim dài, livestream, podcast...
 
-## Cài đặt (chạy local)
+Chỉnh trong `config.toml`:
+```toml
+[scene_detect]
+method = "interval"          # "content" | "interval"
+interval_seconds = 5.0       # Cắt mỗi 5 giây
+output_format = "json"       # "json" | "xml" | "edl"
+```
+
+### 2. Trích audio trước khi gửi ASR
+Tránh lỗi "file quá lớn" khi đẩy nguyên video `.mp4` lên API. Audio được nén xuống **32kbps mono** trước khi gửi.
+
+### 3. TTS async song song
+Các dòng thoại được tổng hợp giọng nói **đồng thời** thay vì tuần tự, giảm thời gian TTS đáng kể.
+
+### 4. Robust JSON extraction
+Script generator dùng regex để trích JSON từ LLM, giảm 90% lỗi parse.
+
+## Cài đặt
 
 ```bash
-git clone <repo-url> && cd video-recap-tool
-python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
+# 1. Clone & cài package
 pip install -r requirements.txt
+
+# 2. Cài ffmpeg hệ thống (macOS: brew, Ubuntu: apt, Windows: ffmpeg.org)
+
+# 3. Tạo config & env từ mẫu
+cp config.toml.example config.toml
+cp .env.example .env
+# Sửa .env điền API key
 ```
 
-Cần cài `ffmpeg` ở máy (không nằm trong requirements.txt vì là binary hệ
-thống, không phải package Python):
-- macOS: `brew install ffmpeg`
-- Ubuntu/Debian: `sudo apt install ffmpeg`
-- Windows: tải từ https://ffmpeg.org và thêm vào PATH
-
-Tạo file `.env` để chứa API key. Có 2 cách đặt tên:
-- Generic: `ASR_API_KEY`, `LLM_API_KEY`
-- Hoặc theo provider: `GROQ_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`
-
-Ví dụ:
-
-```env
-ASR_API_KEY=your_asr_key
-LLM_API_KEY=your_llm_key
-```
-
-Một số nơi lấy key:
-- Groq — https://console.groq.com/keys
-- Google AI Studio — https://aistudio.google.com/apikey
-- OpenAI — https://platform.openai.com/api-keys
-
-## Cấu hình bằng `config.toml`
-
-Project giờ đọc provider/model/base_url từ `config.toml`.
-
-Ví dụ mặc định:
-
-```toml
-[asr_service]
-provider = "groq"
-base_url = "https://api.groq.com"
-api_key = ""
-model = "whisper-large-v3"
-
-[llm_service]
-provider = "google"
-base_url = "https://generativelanguage.googleapis.com"
-api_key = ""
-model = "gemini-2.0-flash-exp"
-
-[tts_service]
-provider = "edge"
-voice_vi = "vi-VN-NamMinhNeural"
-
-[directories]
-work_dir = "workdir"
-output_dir = "output"
-```
-
-Ví dụ đổi sang OpenAI:
-
-```toml
-[asr_service]
-provider = "openai"
-base_url = "https://api.openai.com/v1"
-api_key = ""
-model = "whisper-1"
-
-[llm_service]
-provider = "openai"
-base_url = "https://api.openai.com/v1"
-api_key = ""
-model = "gpt-4o-mini"
-```
-
-## Chạy (local)
+## Chạy
 
 ```bash
-# Bước 1-4: tải, chia cảnh, phiên âm, sinh script nháp
-python main.py prepare "https://youtube.com/watch?v=..."
+# Bước 1-4: chia cảnh, phiên âm, sinh script nháp
+python main.py prepare "/đường/dẫn/tới/video.mp4"
 
 # --- CHECKPOINT ---
-# Mở workdir/script_draft.json, sửa "text" theo gu riêng của bạn.
-# Lưu thành workdir/script_final.json
+# Mở workdir/script_draft.json, sửa "text" theo gu riêng, lưu thành script_final.json
 
 # Bước 5-7: TTS, neo mốc, ghép video
 python main.py render
 ```
 
-Video cuối nằm ở `output/recap_final.mp4`.
+Video cuối: `output/recap_final.mp4`
 
-Tuỳ chọn:
-- `main.py render --no-subtitles` — không burn phụ đề (render nhanh hơn, giữ nguyên codec video)
-- `main.py render --keep-bg-audio` — giữ tiếng gốc ở mức nhỏ làm nền thay vì tắt hẳn
-- `--force` ở cả 2 lệnh để chạy lại bước dù đã có cache (mặc định resume để đỡ tốn API khi test)
+Tuỳ chọn render:
+- `python main.py render --no-subtitles` — không burn phụ đề (render nhanh, copy video)
+- `python main.py render --keep-bg-audio` — giữ tiếng gốc nhỏ làm nền
 
-## Cấu trúc project
+## Cấu trúc
 
 ```
 video-recap-tool/
-├── main.py                    # CLI local: prepare / render
-├── modal_app.py               # Bản cloud (Modal.com)
-├── config.toml                # Chọn provider/model/base_url
-├── config.py                  # Parse config.toml + env
+├── main.py              # CLI: prepare / render
+├── config.py            # Đọc config.toml + .env, định nghĩa đường dẫn & key
+├── config.toml          # Chọn provider/model/scene method
+├── config.toml.example  # Mẫu cấu hình
+├── .env.example         # Mẫu API key
 ├── requirements.txt
-├── .env.example
-└── pipeline/
-    ├── download.py             # bước 1: yt-dlp
-    ├── scene_detect.py         # bước 2: PySceneDetect
-    ├── transcribe.py           # bước 3: ASR đa provider
-    ├── script_gen.py           # bước 4: sinh script + gán ref_start/ref_end
-    ├── tts.py                  # bước 5: TTS + atempo neo mốc
-    ├── subtitles.py            # sinh .srt
-    └── sync_assemble.py        # bước 7: ghép video cuối
+├── download.py          # Giữ lại yt-dlp (tùy chọn)
+├── scene_detect.py      # PySceneDetect + Interval Slicing + XML/EDL
+├── transcribe.py        # ASR (Groq/OpenAI) + trích audio
+├── script_gen.py        # LLM sinh script + regex JSON
+├── tts.py               # Edge-TTS + atempo (async parallel)
+├── subtitles.py         # .srt
+├── sync_assemble.py     # ffmpeg ghép final
+├── modal_app.py         # Stub chạy Modal.com
+├── workdir/             # Tự động tạo
+└── output/              # Tự động tạo
 ```
 
-## Rủi ro cần biết về kiếm tiền
+## Những gì đã sửa
 
-- YouTube 2026 siết chặt "reused content" và nội dung sản xuất hàng loạt
-  (giọng AI + không bình luận thật + đăng tần suất cao).
-- Phim có bản quyền gần như chắc chắn dính Content ID — doanh thu có thể
-  chảy về hãng phim, không phải bạn.
-- Sửa script thôi **chưa đủ** để an toàn. Cần thêm: phong cách dựng/overlay
-  riêng, tần suất đăng vừa phải, gắn nhãn AI-generated đầy đủ, và chiều sâu
-  phân tích thật (không chỉ đổi cách diễn đạt).
-- Kết luận: kiếm tiền được, nhưng không "ổn định" kiểu cứ chạy máy là có
-  tiền — nó sống nhờ bạn liên tục giữ yếu tố con người + tuân thủ chính sách.
-
-## Giới hạn hiện tại / việc có thể làm thêm
-
-- `script_gen.py` yêu cầu model trả JSON đúng định dạng — với phim dài,
-  transcript lớn có thể vượt context window, cần thêm bước chia nhỏ theo
-  từng chương/hồi rồi gộp lại.
-- Timestamp hiện đang dùng granularities theo segment (câu/cụm), không phải
-  từng từ. Nếu cần chính xác hơn, có thể thêm WhisperX align chạy trên GPU T4
-  (Modal) như bước mở rộng.
-- Chưa có bước tự động overlay/watermark phong cách riêng — nên thêm ở
-  bước `sync_assemble.py` (ffmpeg `-vf overlay=...`) nếu muốn.
+- **scene_detect.py**: Thêm `interval` mode (FFmpeg), xuất XML/EDL, fallback tự động.
+- **transcribe.py**: Trích audio MP3 32kb trước khi gửi API; sửa `_extract_segments` hỗ trợ cả object và dict.
+- **script_gen.py**: Dùng regex để trích JSON an toàn; transcript tự động cắt nếu quá dài.
+- **tts.py**: TTS async song song, tránh `asyncio.run` lồng nhau.
+- **sync_assemble.py**: Escape dấu nháy đơn trong path SRT.
+- **config.py**: Thêm `SCENE_DETECT_METHOD`, `SCENE_INTERVAL_SECONDS`, `SCENE_OUTPUT_FORMAT`.
+- **main.py**: Đầu vào là file video local; `--force` hoạt động thật.

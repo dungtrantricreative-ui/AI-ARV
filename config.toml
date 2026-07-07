@@ -1,30 +1,19 @@
-# ===== DỊCH VỤ TRÍCH ÂM (ASR - Automatic Speech Recognition) =====
 [asr_service]
-provider = "groq"  # "groq" hoặc "openai"
+provider = "groq"
 base_url = "https://api.groq.com"
-api_key = ""  # Ưu tiên lấy từ biến môi trường ASR_API_KEY
+api_key = ""
 model = "whisper-large-v3"
 
-# ===== DỊCH VỤ HIỂU NGÔN NGỮ / SINH KỊCH BẢN (LLM) =====
 [llm_service]
-provider = "google"  # "google", "openai", "groq"
+provider = "google"
 base_url = "https://generativelanguage.googleapis.com"
-api_key = ""  # Ưu tiên lấy từ biến môi trường LLM_API_KEY
+api_key = ""
 model = "gemini-2.0-flash-exp"
 
-# ===== TTS (Text-to-Speech) =====
 [tts_service]
-provider = "edge"  # "edge", "google", "openai" v.v.
-voice_vi = "vi-VN-NamMinhNeural"
+provider = "edge"
+voice_vi = "vi-VN-HoaiMyNeural"
 
-# ===== THƯ MỤC =====
-[directories]
-work_dir = "workdir"
-output_dir = "output"
-
-# ===== THAM SỐ XỬ LÝ =====
-[processing]
-scene_detect_threshold = 27.0
-min_scene_len_sec = 2.0
-max_time_stretch_ratio = 1.5
-min_time_stretch_ratio = 0.7
+[scene_detect]
+threshold = 27.0
+min_duration = 1.5

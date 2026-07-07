@@ -1,0 +1,26 @@
+[asr_service]
+provider = "groq"
+base_url = "https://api.groq.com"
+model = "whisper-large-v3"
+api_key = ""
+
+[llm_service]
+provider = "google"
+base_url = "https://generativelanguage.googleapis.com"
+model = "gemini-2.0-flash-exp"
+api_key = ""
+
+[tts_service]
+provider = "edge"
+voice_vi = "vi-VN-HoaiMyNeural"
+
+[scene_detect]
+# "content" = PySceneDetect (chính xác, chậm, cần CPU/GPU)
+# "interval" = Cắt thô bạo bằng FFmpeg (cực nhanh, không cần decode)
+method = "interval"
+threshold = 27.0
+min_duration = 1.5
+# Khoảng cách giữa các cảnh khi dùng interval slicing (giây)
+interval_seconds = 5.0
+# Định dạng xuất: "json" | "xml" | "edl"
+output_format = "json"
