@@ -10,8 +10,8 @@ giữa pipeline để bạn sửa script trước khi AI đọc và ghép — đ
 ```
 1. Tải video          yt-dlp
 2. Chia cảnh           PySceneDetect
-3. Phiên âm+timestamp  Groq Whisper API (free)
-4. Sinh script nháp    Gemini/Gemma qua Google AI Studio (free)
+3. Phiên âm+timestamp  ASR provider cấu hình qua config.toml
+4. Sinh script nháp    LLM provider cấu hình qua config.toml
    ── CHECKPOINT: bạn sửa script_draft.json -> script_final.json ──
 5. TTS + neo mốc       edge-tts + ffmpeg atempo (mỗi dòng neo đúng vị trí gốc)
 6. Sinh phụ đề         .srt khớp với audio đã sync
@@ -42,9 +42,65 @@ thống, không phải package Python):
 - Ubuntu/Debian: `sudo apt install ffmpeg`
 - Windows: tải từ https://ffmpeg.org và thêm vào PATH
 
-Copy `.env.example` thành `.env`, điền API key (đều free):
-- `GROQ_API_KEY` — https://console.groq.com/keys
-- `GOOGLE_API_KEY` — https://aistudio.google.com/apikey
+Tạo file `.env` để chứa API key. Có 2 cách đặt tên:
+- Generic: `ASR_API_KEY`, `LLM_API_KEY`
+- Hoặc theo provider: `GROQ_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`
+
+Ví dụ:
+
+```env
+ASR_API_KEY=your_asr_key
+LLM_API_KEY=your_llm_key
+```
+
+Một số nơi lấy key:
+- Groq — https://console.groq.com/keys
+- Google AI Studio — https://aistudio.google.com/apikey
+- OpenAI — https://platform.openai.com/api-keys
+
+## Cấu hình bằng `config.toml`
+
+Project giờ đọc provider/model/base_url từ `config.toml`.
+
+Ví dụ mặc định:
+
+```toml
+[asr_service]
+provider = "groq"
+base_url = "https://api.groq.com"
+api_key = ""
+model = "whisper-large-v3"
+
+[llm_service]
+provider = "google"
+base_url = "https://generativelanguage.googleapis.com"
+api_key = ""
+model = "gemini-2.0-flash-exp"
+
+[tts_service]
+provider = "edge"
+voice_vi = "vi-VN-NamMinhNeural"
+
+[directories]
+work_dir = "workdir"
+output_dir = "output"
+```
+
+Ví dụ đổi sang OpenAI:
+
+```toml
+[asr_service]
+provider = "openai"
+base_url = "https://api.openai.com/v1"
+api_key = ""
+model = "whisper-1"
+
+[llm_service]
+provider = "openai"
+base_url = "https://api.openai.com/v1"
+api_key = ""
+model = "gpt-4o-mini"
+```
 
 ## Chạy (local)
 
@@ -73,13 +129,14 @@ Tuỳ chọn:
 video-recap-tool/
 ├── main.py                    # CLI local: prepare / render
 ├── modal_app.py               # Bản cloud (Modal.com)
-├── config.py                  # API key, đường dẫn, tham số
+├── config.toml                # Chọn provider/model/base_url
+├── config.py                  # Parse config.toml + env
 ├── requirements.txt
 ├── .env.example
 └── pipeline/
     ├── download.py             # bước 1: yt-dlp
     ├── scene_detect.py         # bước 2: PySceneDetect
-    ├── transcribe.py           # bước 3: Groq Whisper API
+    ├── transcribe.py           # bước 3: ASR đa provider
     ├── script_gen.py           # bước 4: sinh script + gán ref_start/ref_end
     ├── tts.py                  # bước 5: TTS + atempo neo mốc
     ├── subtitles.py            # sinh .srt
@@ -103,8 +160,8 @@ video-recap-tool/
 - `script_gen.py` yêu cầu model trả JSON đúng định dạng — với phim dài,
   transcript lớn có thể vượt context window, cần thêm bước chia nhỏ theo
   từng chương/hồi rồi gộp lại.
-- Timestamp từ Groq là theo segment (câu/cụm), không phải từng từ. Nếu cần
-  chính xác hơn, có thể thêm WhisperX align chạy trên GPU T4 (Modal) như
-  bước mở rộng.
+- Timestamp hiện đang dùng granularities theo segment (câu/cụm), không phải
+  từng từ. Nếu cần chính xác hơn, có thể thêm WhisperX align chạy trên GPU T4
+  (Modal) như bước mở rộng.
 - Chưa có bước tự động overlay/watermark phong cách riêng — nên thêm ở
   bước `sync_assemble.py` (ffmpeg `-vf overlay=...`) nếu muốn.
