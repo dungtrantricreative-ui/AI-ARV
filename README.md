@@ -67,26 +67,6 @@ Tuỳ chọn:
 - `main.py render --keep-bg-audio` — giữ tiếng gốc ở mức nhỏ làm nền thay vì tắt hẳn
 - `--force` ở cả 2 lệnh để chạy lại bước dù đã có cache (mặc định resume để đỡ tốn API khi test)
 
-## Chạy trên cloud (Modal.com)
-
-Dùng khi không muốn bật máy cá nhân, hoặc chạy hàng loạt. Máy bạn chỉ gửi
-lệnh, mọi xử lý nặng nằm trên Modal (free ~$30 credit/tháng, không cần thẻ).
-
-```bash
-pip install modal
-modal setup
-modal secret create my-api-keys GROQ_API_KEY=xxx GOOGLE_API_KEY=xxx
-
-modal run modal_app.py --url "https://youtube.com/..." --step prepare
-# sửa script: modal volume get video-recap-workdir workdir/script_draft.json .
-# rồi:        modal volume put video-recap-workdir script_final.json workdir/script_final.json
-modal run modal_app.py --step render
-# tải video: modal volume get video-recap-workdir output/recap_final.mp4 .
-```
-
-Không cần GPU — ASR (Groq) và sinh script (Google AI Studio) đều là API
-cloud, phần còn lại (tải video, ffmpeg) chỉ cần CPU.
-
 ## Cấu trúc project
 
 ```
