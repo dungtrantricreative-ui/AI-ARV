@@ -21,8 +21,13 @@ def get_audio_duration(file_path):
 
 
 def build_atempo_filter(ratio):
-    ratio = max(0.2, min(5.0, ratio))
+    # Clamp theo giới hạn cấu hình trong config.py (MIN/MAX_TIME_STRETCH_RATIO),
+    # trước đây bị hardcode 0.2-5.0 nên bỏ qua config hoàn toàn -> giọng có thể
+    # bị kéo dãn/nén quá đà nghe méo. Mặc định 0.5x-2.0x, chỉnh trong config.py nếu cần.
+    ratio = max(config.MIN_TIME_STRETCH_RATIO, min(config.MAX_TIME_STRETCH_RATIO, ratio))
     filters = []
+    # atempo filter của ffmpeg chỉ nhận 0.5-2.0 mỗi lần, cần chia nhỏ nếu range cấu hình
+    # rộng hơn (vd nếu người dùng tự nới MAX lên 4.0 trong config.py)
     while ratio > 2.0:
         filters.append("atempo=2.0")
         ratio /= 2.0
@@ -64,6 +69,8 @@ async def _process_tts_line_async(line, idx):
 
     target_duration = line["ref_end"] - line["ref_start"]
     if target_duration <= 0:
+        print(f"⚠️ Line {idx}: ref_start/ref_end không hợp lệ ({line['ref_start']}-{line['ref_end']}), "
+              f"dùng fallback 2.0s. Kiểm tra lại script_final.json nếu audio bị cắt/lệch.")
         target_duration = 2.0
     actual_duration = get_audio_duration(raw_path)
     if actual_duration == 0:
@@ -79,9 +86,11 @@ async def _process_tts_line_async(line, idx):
         str(final_path)
     ]
     try:
-        subprocess.run(cmd, capture_output=True, check=True)
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"⚠️ atempo lỗi, dùng raw fallback: {e}")
+        print(f"⚠️ atempo lỗi, dùng raw fallback (audio sẽ không khớp mốc thời gian): {e}")
+        if e.stderr:
+            print(f"   ffmpeg stderr: {e.stderr[-800:]}")
         shutil.copy(str(raw_path), str(final_path))
 
     return {

@@ -31,17 +31,42 @@ if CONFIG_PATH.exists():
 def _get(section, key, default):
     return config_toml.get(section, {}).get(key, default)
 
+
+def _resolve_api_key(section, generic_env, provider, provider_env_map):
+    """Ưu tiên: config.toml -> env chung (vd ASR_API_KEY) -> env riêng theo provider.
+
+    provider_env_map: dict {provider_name: env_var_name}. Chỉ fallback vào
+    env var TƯƠNG ỨNG với provider đang chọn, tránh lấy nhầm key của provider khác.
+    """
+    key = _get(section, "api_key", "")
+    if key:
+        return key
+    key = os.getenv(generic_env, "")
+    if key:
+        return key
+    env_name = provider_env_map.get(provider.lower())
+    if env_name:
+        return os.getenv(env_name, "")
+    return ""
+
+
 # ASR
 ASR_PROVIDER = _get("asr_service", "provider", "groq")
 ASR_BASE_URL = _get("asr_service", "base_url", "https://api.groq.com")
 ASR_MODEL = _get("asr_service", "model", "whisper-large-v3")
-ASR_API_KEY = _get("asr_service", "api_key", "") or os.getenv("ASR_API_KEY") or os.getenv("GROQ_API_KEY", "")
+ASR_API_KEY = _resolve_api_key(
+    "asr_service", "ASR_API_KEY", ASR_PROVIDER,
+    {"groq": "GROQ_API_KEY", "openai": "OPENAI_API_KEY"}
+)
 
 # LLM
 LLM_PROVIDER = _get("llm_service", "provider", "google")
 LLM_BASE_URL = _get("llm_service", "base_url", "https://generativelanguage.googleapis.com")
 LLM_MODEL = _get("llm_service", "model", "gemini-2.0-flash-exp")
-LLM_API_KEY = _get("llm_service", "api_key", "") or os.getenv("LLM_API_KEY") or os.getenv("GOOGLE_API_KEY", "") or os.getenv("OPENAI_API_KEY", "")
+LLM_API_KEY = _resolve_api_key(
+    "llm_service", "LLM_API_KEY", LLM_PROVIDER,
+    {"google": "GOOGLE_API_KEY", "groq": "GROQ_API_KEY", "openai": "OPENAI_API_KEY"}
+)
 
 # TTS
 TTS_PROVIDER = _get("tts_service", "provider", "edge")

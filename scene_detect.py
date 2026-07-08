@@ -39,14 +39,19 @@ def _build_content_scenes(video_path: Path) -> list[dict]:
         raise ImportError("PySceneDetect chưa được cài. Fallback về interval slicing.")
     scene_list = detect(str(video_path), ContentDetector(threshold=config.SCENE_DETECT_THRESHOLD))
     scenes = []
-    for i, (start, end) in enumerate(scene_list):
+    for start, end in scene_list:
         start_sec = start.get_seconds()
         end_sec = end.get_seconds()
         if end_sec - start_sec < config.MIN_SCENE_LEN_SEC:
             if scenes:
+                # Gộp cảnh ngắn vào cảnh liền trước
                 scenes[-1]["end"] = end_sec
                 continue
-        scenes.append({"scene_id": i, "start": round(start_sec, 3), "end": round(end_sec, 3)})
+            # Trước đây: nếu cảnh NGẮN đầu tiên xuất hiện khi scenes còn rỗng,
+            # nó bị drop hoàn toàn (không append, không gộp) -> vài giây đầu
+            # video biến mất khỏi danh sách cảnh, transcript/script mất mốc.
+            # Sửa: vẫn giữ lại làm cảnh đầu tiên thay vì bỏ qua.
+        scenes.append({"scene_id": len(scenes), "start": round(start_sec, 3), "end": round(end_sec, 3)})
     return scenes
 
 
@@ -98,7 +103,8 @@ def detect_scenes(video_path: Path) -> list[dict]:
         try:
             scenes = _build_content_scenes(video_path)
         except Exception as e:
-            print(f"⚠️ PySceneDetect lỗi ({e}), fallback về Interval Slicing")
+            print(f"⚠️ PySceneDetect lỗi ({e}), fallback về Interval Slicing "
+                  f"({config.SCENE_INTERVAL_SECONDS}s/cảnh)")
             scenes = _build_interval_scenes(video_path, config.SCENE_INTERVAL_SECONDS)
 
     fmt = config.SCENE_OUTPUT_FORMAT.lower()

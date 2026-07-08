@@ -13,7 +13,16 @@ def get_ffmpeg_compatible_subtitles_filter(srt_path):
         path_str = path_str.replace("\\", "/").replace(":", "\\:")
     # Escape dấu nháy đơn trong đường dẫn cho ffmpeg filter
     path_str = path_str.replace("'", "'\\''")
-    return f"subtitles='{path_str}'"
+    # Áp style từ config.py (trước đây SRT_FONT_SIZE/SRT_PRIMARY_COLOR/... được định
+    # nghĩa nhưng không hề được dùng ở đâu -> phụ đề burn ra luôn dùng style mặc định
+    # nhỏ xíu của ffmpeg, bỏ qua toàn bộ cấu hình style).
+    force_style = (
+        f"FontSize={config.SRT_FONT_SIZE},"
+        f"PrimaryColour={config.SRT_PRIMARY_COLOR},"
+        f"OutlineColour={config.SRT_OUTLINE_COLOR},"
+        f"Outline={config.SRT_OUTLINE_WIDTH}"
+    )
+    return f"subtitles='{path_str}':force_style='{force_style}'"
 
 
 def assemble_video_and_audio(original_video, srt_path, tts_segments, output_video_path, keep_bg=False, no_subs=False):
@@ -27,10 +36,13 @@ def assemble_video_and_audio(original_video, srt_path, tts_segments, output_vide
         inputs.extend(["-i", seg["audio_path"]])
 
     # Audio filter: delay từng TTS track rồi mix
+    # Trước đây dùng "adelay=X|X" giả định audio TTS luôn stereo (2 kênh).
+    # edge-tts có thể xuất mono -> ffmpeg lỗi "number of delays doesn't match
+    # number of channels". Dùng "all=1" để áp delay cho mọi kênh bất kể số lượng.
     audio_filter = ""
     for i in range(n_tts):
         start_ms = int(tts_segments[i]["start"] * 1000)
-        audio_filter += f"[{i+1}:a]adelay={start_ms}|{start_ms}[a{i}];"
+        audio_filter += f"[{i+1}:a]adelay=delays={start_ms}:all=1[a{i}];"
 
     mix_inputs = "".join([f"[a{i}]" for i in range(n_tts)])
     if keep_bg:
@@ -66,7 +78,11 @@ def assemble_video_and_audio(original_video, srt_path, tts_segments, output_vide
     print(f"🎬 Đang ghép video & đốt phụ đề...")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"❌ Lỗi ffmpeg:\n{result.stderr[:2000]}")
+        # In full log ra file thay vì chỉ cắt 2000 ký tự (video nặng, lỗi dài,
+        # cắt ngắn có thể mất phần quan trọng nhất là dòng lỗi cuối).
+        log_path = config.WORK_DIR / "ffmpeg_assemble_error.log"
+        log_path.write_text(result.stderr, encoding="utf-8")
+        print(f"❌ Lỗi ffmpeg (xem đầy đủ tại {log_path}):\n{result.stderr[-2000:]}")
         return False
     print(f"✅ Xong: {output_video_path}")
     return True

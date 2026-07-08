@@ -6,9 +6,18 @@ import config
 
 
 def _extract_audio(video_path: Path) -> Path:
-    """Trích xuất audio sang mp3 để gửi API, giảm dung lượng xuống ~5-10%."""
-    audio_path = config.TEMP_DIR / f"audio_{video_path.stem}.mp3"
+    """Trích xuất audio sang mp3 để gửi API, giảm dung lượng xuống ~5-10%.
+
+    Cache key dựa trên tên file + size + mtime của video gốc, KHÔNG chỉ theo
+    stem. Trước đây cache chỉ theo stem ("source") nên chạy `prepare` lần 2
+    với video khác (dù ghi đè source.mp4 bằng --force) vẫn dùng nhầm audio
+    .mp3 cũ trong TEMP_DIR -> phiên âm sai nội dung.
+    """
+    stat = video_path.stat()
+    cache_key = f"{video_path.stem}_{stat.st_size}_{int(stat.st_mtime)}"
+    audio_path = config.TEMP_DIR / f"audio_{cache_key}.mp3"
     if audio_path.exists():
+        print(f"[transcribe] Dùng audio cache có sẵn -> {audio_path}")
         return audio_path
     cmd = [
         "ffmpeg", "-y", "-i", str(video_path),
@@ -16,7 +25,10 @@ def _extract_audio(video_path: Path) -> Path:
         str(audio_path)
     ]
     print(f"[transcribe] Trích audio -> {audio_path}")
-    subprocess.run(cmd, capture_output=True, check=True)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"❌ ffmpeg trích audio thất bại:\n{result.stderr[-2000:]}")
+        raise subprocess.CalledProcessError(result.returncode, cmd, output=result.stdout, stderr=result.stderr)
     return audio_path
 
 

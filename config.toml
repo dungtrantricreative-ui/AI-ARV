@@ -2,14 +2,16 @@
 provider = "groq"
 base_url = "https://api.groq.com"
 model = "whisper-large-v3"
-api_key = "gsk_..."  # Groq key
+# DÁN KEY THẬT VÀO ĐÂY (để trống "" nếu muốn lấy từ biến môi trường GROQ_API_KEY)
+api_key = ""
 
 [llm_service]
 # Cerebras dùng OpenAI-compatible API → provider = "openai"
 provider = "openai"
 base_url = "https://api.cerebras.ai/v1"
 model = "gemma-4-31b"
-api_key = "csk_..."  # Cerebras key
+# DÁN KEY THẬT VÀO ĐÂY (để trống "" nếu muốn lấy từ biến môi trường OPENAI_API_KEY)
+api_key = ""
 
 [tts_service]
 provider = "edge"

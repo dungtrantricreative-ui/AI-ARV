@@ -12,6 +12,7 @@ from script_gen import generate_script
 from tts import process_all_tts
 from subtitles import build_srt
 from sync_assemble import assemble_video_and_audio
+from download import download_video
 
 
 def check_dependencies():
@@ -36,6 +37,17 @@ def validate_and_load_script(path):
         if missing:
             raise KeyError(f"Dòng {idx+1} thiếu các trường: {missing}")
     return data
+
+
+def cmd_download(args):
+    # Trước đây download.py tồn tại nhưng không có subcommand nào gọi tới,
+    # nên tính năng tải video coi như chết. Thêm subcommand "download".
+    if not shutil.which("yt-dlp"):
+        print("❌ Không tìm thấy 'yt-dlp'. Cài bằng: pip install yt-dlp")
+        sys.exit(1)
+    video_path = download_video(args.url)
+    print(f"\n✅ Đã tải xong: {video_path}")
+    print(f"👉 Chạy tiếp: python main.py prepare \"{video_path}\"")
 
 
 def cmd_prepare(args):
@@ -96,6 +108,9 @@ def cmd_render(args):
 
     # Bước 7: Ghép video cuối
     output_path = config.OUTPUT_DIR / "recap_final.mp4"
+    if output_path.exists() and not args.force:
+        print(f"❌ {output_path} đã tồn tại. Dùng --force để ghi đè.")
+        sys.exit(1)
     assemble_video_and_audio(
         video_path,
         srt_path,
@@ -111,6 +126,9 @@ def main():
     parser = argparse.ArgumentParser(description="AI Video Recap Tool")
     sub = parser.add_subparsers(dest="command")
 
+    p_dl = sub.add_parser("download", help="Tải video từ URL bằng yt-dlp (tùy chọn, cần cài yt-dlp)")
+    p_dl.add_argument("url", help="URL video (YouTube, v.v.)")
+
     p_prep = sub.add_parser("prepare", help="Chia cảnh, phiên âm, sinh script nháp từ file video")
     p_prep.add_argument("video_path", nargs="?", help="Đường dẫn file video (.mp4, .mkv, .mov...)")
     p_prep.add_argument("--force", action="store_true", help="Ghi đè source.mp4 nếu đã tồn tại")
@@ -121,7 +139,9 @@ def main():
     p_render.add_argument("--force", action="store_true", help="Bỏ qua cache nếu có")
 
     args = parser.parse_args()
-    if args.command == "prepare":
+    if args.command == "download":
+        cmd_download(args)
+    elif args.command == "prepare":
         cmd_prepare(args)
     elif args.command == "render":
         cmd_render(args)
