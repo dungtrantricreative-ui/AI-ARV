@@ -1,11 +1,17 @@
 import json
 import shutil
+import time
 from pathlib import Path
 
 import config
 import director
 import frame_extract
 import llm_client
+
+# Độ trễ (giây) chèn sau MỖI block kịch bản (dù thành công hay lỗi) để giữ
+# nhịp độ gọi API trong giới hạn tier hiện tại, tránh bị Cerebras/Gemma (hoặc
+# provider LLM/vision khác) khoá tạm thời do gọi quá nhanh (lỗi 429).
+API_THROTTLE_SEC = 2.5
 
 
 # ============================================================
@@ -49,6 +55,12 @@ def _generate_script_directed(transcript, scenes, video_path: Path):
                   f"Bỏ qua block này (thoại/hình các block khác không bị ảnh hưởng).")
             lines = []
         all_lines.extend(lines)
+
+        # Throttling: chờ giữa các block để không vượt rate limit (429) của
+        # provider LLM/vision hiện tại. Chèn kể cả khi block vừa rồi lỗi,
+        # vì lỗi đó rất có thể chính là do gọi API quá nhanh.
+        if i < n_blocks:
+            time.sleep(API_THROTTLE_SEC)
 
     if frames_dir.exists():
         shutil.rmtree(frames_dir, ignore_errors=True)
