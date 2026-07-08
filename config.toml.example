@@ -24,6 +24,12 @@ base_url = ""
 model = ""
 api_key = ""
 
+[script]
+# Bước biên tập lại kịch bản sau khi sinh xong (gộp câu cho mạch lạc, cắt
+# câu sáo rỗng, giữ mạch truyện xuyên suốt). Tốn thêm vài lần gọi LLM text
+# (rẻ) nhưng cải thiện chất lượng recap rõ rệt. Tắt nếu muốn tiết kiệm tối đa.
+polish_enabled = true
+
 [director]
 # "AI truong nhom": tu quyet dinh doan nao chi can transcript (re, nhanh) va
 # doan nao can xem them khung hinh (dat hon nhung chinh xac hon voi cac

@@ -16,10 +16,14 @@ import time
 def extract_json(text: str):
     """Trích JSON array từ phản hồi LLM, chịu lỗi tốt hơn parse trực tiếp
     (LLM hay chèn thêm text giải thích dù đã dặn không làm vậy)."""
-    match = re.search(r'\[\s*\{.*\}\s*\]', text, re.DOTALL)
+    cleaned = re.sub(r'```(?:json)?', '', text).strip()
+    # Cho phép cả mảng rỗng "[]" (model chủ động báo đoạn này không quan trọng).
+    match = re.search(r'\[\s*\{.*\}\s*\]', cleaned, re.DOTALL)
     if match:
         return json.loads(match.group(0))
-    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if re.search(r'^\s*\[\s*\]\s*$', cleaned):
+        return []
+    match = re.search(r'\{.*\}', cleaned, re.DOTALL)
     if match:
         return [json.loads(match.group(0))]
     raise ValueError("Không tìm thấy JSON trong phản hồi LLM.")
@@ -31,6 +35,21 @@ def extract_json_object(text: str) -> dict:
     if not match:
         raise ValueError("Không tìm thấy JSON object trong phản hồi LLM.")
     return json.loads(match.group(0))
+
+
+def extract_json_array_of_strings(text: str) -> list:
+    """Trích 1 JSON array of strings từ phản hồi LLM (dùng cho bước polish
+    của script_gen.py). Khác extract_json() ở chỗ phần tử là string thuần,
+    không phải object {ref_start,...}."""
+    # Bỏ code fence kiểu ```json ... ``` nếu model lỡ thêm vào dù đã dặn không làm vậy.
+    cleaned = re.sub(r'```(?:json)?', '', text).strip()
+    match = re.search(r'\[.*\]', cleaned, re.DOTALL)
+    if not match:
+        raise ValueError("Không tìm thấy JSON array trong phản hồi LLM.")
+    data = json.loads(match.group(0))
+    if not isinstance(data, list):
+        raise ValueError("Phản hồi LLM không phải JSON array.")
+    return [str(x) for x in data]
 
 
 def call_with_retry(fn, max_retries=3, base_wait=5, label="llm"):

@@ -81,6 +81,9 @@ MIN_SCENE_DURATION = MIN_SCENE_LEN_SEC
 SCENE_INTERVAL_SECONDS = float(_get("scene_detect", "interval_seconds", 5.0))
 SCENE_OUTPUT_FORMAT = _get("scene_detect", "output_format", "json")  # "json" | "xml" | "edl"
 
+# --- Script polish (bước biên tập lại kịch bản cho mạch lạc, xem script_gen.py) ---
+SCRIPT_POLISH_ENABLED = bool(_get("script", "polish_enabled", True))
+
 # --- Director ---
 DIRECTOR_ENABLED = bool(_get("director", "enabled", True))
 DIRECTOR_DENSITY_THRESHOLD = float(_get("director", "density_threshold", 3.0))

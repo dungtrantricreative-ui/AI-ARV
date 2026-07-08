@@ -16,6 +16,9 @@ base_url = ""
 model = ""
 api_key = ""
 
+[script]
+polish_enabled = true
+
 [director]
 enabled = true
 density_threshold = 3.0
