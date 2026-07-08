@@ -9,3 +9,4 @@ python-dotenv>=1.0.0
 pydub>=0.25.1
 tomli>=2.0.1; python_version < "3.11"
 modal>=0.63.0
+Pillow>=10.0.0

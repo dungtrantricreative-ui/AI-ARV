@@ -43,10 +43,20 @@ Toàn bộ pipeline chạy local trên máy bạn (dùng `ffmpeg`), chỉ gọi 
 - Tự động retry khi gặp lỗi rate limit (429) với backoff tăng dần.
 - Cache audio đã trích theo (tên file + dung lượng + thời gian sửa đổi) — chạy lại không cần trích lại audio nếu video không đổi.
 
-### Sinh kịch bản recap (LLM)
+### Sinh kịch bản recap (LLM) + AI trưởng nhóm (Director)
 - Đưa transcript (có timestamp) + danh sách cảnh vào prompt, yêu cầu LLM viết lại thành kịch bản recap ngắn gọn bằng tiếng Việt, mỗi dòng gắn với một khoảng thời gian cụ thể trong video gốc (`ref_start` / `ref_end`).
-- Hỗ trợ 3 provider: **Google Gemini**, **Groq**, **OpenAI-compatible** (dùng được với Cerebras, OpenRouter, hoặc bất kỳ endpoint nào tương thích chuẩn OpenAI Chat Completions).
-- Transcript quá dài (>20.000 ký tự) tự động được rút gọn thông minh (giữ đầu + cuối, lược phần giữa) để không tràn context window.
+- Hỗ trợ 3 provider cho phần text: Google Gemini, Groq, OpenAI-compatible (dùng được với Cerebras, OpenRouter, hoặc bất kỳ endpoint nào tương thích chuẩn OpenAI Chat Completions).
+- AI trưởng nhóm (`director.py`): vì AI chỉ đọc transcript sẽ bỏ lỡ những đoạn hành động/im lặng không lời thoại, và xem toàn bộ video bằng model vision (vd Gemma 4 31B qua Cerebras) vừa vượt cửa sổ ngữ cảnh vừa quá đắt, director tự động thực hiện các bước sau:
+  - Tính mật độ thoại (ký tự/giây) và tỉ lệ im lặng của từng cảnh từ transcript đã có (miễn phí, không gọi API).
+  - Đánh dấu "text" (đủ thoại để hiểu) hoặc "vision" (quá ít thoại, cần xem thêm khung hình) cho từng cảnh, rồi gộp các cảnh liền kề cùng nhãn thành từng block để giảm số lần gọi API.
+  - Tuỳ chọn xác nhận lại danh sách block vision bằng 1 lần gọi LLM text-only rẻ tiền trước khi thực sự tốn tiền gọi model vision, tránh false-positive (vd nhạc nền dài nhưng không quan trọng cốt truyện).
+  - Với mỗi block vision: trích vài khung hình đại diện bằng ffmpeg (resize nhỏ), gửi kèm transcript ít ỏi của đoạn đó cho model vision để mô tả và viết kịch bản.
+  - Với mỗi block text: gọi LLM văn bản như bình thường.
+  - Có van an toàn chi phí: nếu tỉ lệ thời lượng vision trên tổng phim vượt ngưỡng cấu hình (mặc định 35%), director tự nới lỏng ngưỡng phân loại để tránh phim ít thoại (hành động, kinh dị...) đẩy chi phí vượt kiểm soát.
+  - Mọi lỗi (vision API từ chối, ffmpeg trích khung hình lỗi, LLM xác nhận lỗi...) đều tự lùi về text-only cho đúng block đó thay vì làm chết cả pipeline.
+  - Có thể tắt hoàn toàn (director.enabled = false trong config.toml) để quay lại hành vi cũ: 1 lần gọi LLM cho toàn bộ transcript.
+  - Xem công thức chi tiết (ngưỡng, cách gộp block, van an toàn) ở đầu file director.py.
+- Transcript quá dài (áp dụng khi director tắt) tự động được rút gọn thông minh (giữ đầu + cuối, lược phần giữa) để không tràn context window.
 - Trích JSON từ phản hồi LLM bằng regex, chịu lỗi tốt hơn so với parse JSON trực tiếp (LLM hay chèn thêm text giải thích dù đã dặn không làm vậy).
 
 ### Checkpoint chỉnh sửa thủ công
@@ -79,7 +89,8 @@ Toàn bộ pipeline chạy local trên máy bạn (dùng `ffmpeg`), chỉ gọi 
 1. Nhận file video        Copy vào workdir/source.mp4
 2. Chia cảnh               PySceneDetect HOẶC Interval Slicing (FFmpeg)
 3. Phiên âm + timestamp    ASR provider (Groq / OpenAI-compatible)
-4. Sinh kịch bản nháp      LLM provider (Google / Groq / OpenAI-compatible)
+4. Director điều phối      Phân loại từng cảnh: text-only hay cần xem thêm hình (director.py)
+4b. Sinh kịch bản nháp     Block text -> LLM (Google/Groq/OpenAI) | Block vision -> ffmpeg trích khung hình + model vision (Cerebras Gemma 4...)
    ── CHECKPOINT: sửa workdir/script_draft.json -> lưu thành script_final.json ──
 5. TTS + neo mốc           edge-tts + ffmpeg atempo (song song, có time-stretch)
 6. Sinh phụ đề              .srt khớp audio đã đồng bộ
@@ -118,9 +129,11 @@ pip install -r requirements.txt
 
 # 4. Cài ffmpeg hệ thống (xem phần Yêu cầu hệ thống ở trên nếu chưa có)
 
-# 5. Tạo file cấu hình từ mẫu
-cp config.toml.example config.toml
-# Mở config.toml, điền api_key vào (xem phần Cấu hình bên dưới)
+# 5. Tạo file cấu hình — CÁCH DỄ NHẤT: chạy trợ lý thiết lập hỏi-đáp
+python main.py setup
+# Trợ lý sẽ tạo config.toml giúp bạn. Muốn tự sửa tay thay vì hỏi-đáp:
+#   cp config.toml.example config.toml
+#   rồi mở config.toml lên điền api_key (xem phần Cấu hình bên dưới)
 ```
 
 Kiểm tra cài đặt thành công:
@@ -158,6 +171,28 @@ base_url = "https://generativelanguage.googleapis.com"
 model = "gemini-2.0-flash-exp"
 api_key = ""
 
+[vision_service]
+# Model XEM ẢNH được, dùng cho các đoạn ít/không thoại. Để trống 3 dòng dưới
+# để dùng chung cấu hình với [llm_service] (nếu model đó đã hỗ trợ vision,
+# vd Cerebras gemma-4-31b). Nếu llm_service của bạn là model text-only, điền
+# riêng ở đây (vd Cerebras gemma-4-31b, hoặc gemini-2.0-flash cũng có vision).
+provider = ""
+base_url = ""
+model = ""
+api_key = ""
+
+[director]
+enabled = true                     # tắt để quay lại cách cũ: 1 lần gọi LLM cho toàn bộ transcript
+density_threshold = 3.0            # ký tự thoại/giây, dưới ngưỡng này coi là "cảnh ít thoại"
+silence_ratio_threshold = 0.6      # tỉ lệ thời gian im lặng trong cảnh, vượt ngưỡng -> cần xem hình
+max_vision_block_seconds = 40.0    # gộp tối đa N giây liên tiếp thành 1 block gửi model vision
+max_text_block_seconds = 300.0     # gộp tối đa N giây liên tiếp thành 1 block gửi model text
+frames_per_block = 3               # số khung hình trích xuất mỗi block vision
+frame_max_width = 512              # resize khung hình trước khi gửi (px)
+confirm_with_llm = true            # xác nhận lại bằng 1 lần gọi text-only trước khi tốn tiền gọi vision
+force_vision_first_scene = true    # luôn xem hình cảnh mở đầu phim
+max_vision_ratio = 0.35            # van an toàn chi phí: tối đa 35% thời lượng phim được gửi vision
+
 [tts_service]
 provider = "edge"                          # hiện chỉ hỗ trợ "edge" (edge-tts)
 voice_vi = "vi-VN-HoaiMyNeural"            # xem danh sách giọng: `edge-tts --list-voices`
@@ -177,6 +212,10 @@ output_format = "json"                     # "json" | "xml" | "edl"
 | `llm_service.provider` | `google` dùng SDK Gemini; `groq` dùng SDK Groq chat; `openai` dùng SDK OpenAI Chat Completions (tương thích Cerebras, OpenRouter, LM Studio local, v.v.). |
 | `scene_detect.threshold` | Ngưỡng nhạy cảm phát hiện đổi cảnh của PySceneDetect — số càng thấp càng dễ tách cảnh (nhạy), càng cao càng ít cảnh hơn. |
 | `scene_detect.min_duration` | Cảnh phát hiện được ngắn hơn giá trị này sẽ tự động gộp vào cảnh liền trước, tránh cảnh vụn vặt vài trăm mili-giây. |
+| `director.density_threshold` | Giảm số này (vd 1.5) nếu thấy director gọi vision quá ít cho phim ít thoại; tăng lên (vd 5.0) nếu thấy gọi vision quá nhiều. |
+| `director.max_vision_ratio` | Trần cứng cho % thời lượng phim được gửi vision — bộ phanh chi phí, không cần chỉnh trừ khi bạn hiểu rõ đang đánh đổi gì. |
+| `director.confirm_with_llm` | Tắt để tiết kiệm đúng 1 lời gọi text-only mỗi lần chạy, nhưng dễ tốn vision hơn cho các đoạn thực ra không quan trọng. |
+| `vision_service.*` | Để trống cả 4 trường để dùng chung với `llm_service` (khuyến nghị nếu bạn đã dùng Cerebras gemma-4-31b). Chỉ điền riêng khi `llm_service` là model text-only. |
 
 Ngoài `config.toml`, một số hằng số nâng cao nằm trong `config.py` (ít khi cần đổi, đổi trực tiếp trong code nếu cần):
 
@@ -325,14 +364,17 @@ video-recap-tool/
 ├── download.py                 # Tải video bằng yt-dlp
 ├── scene_detect.py             # Chia cảnh: PySceneDetect + Interval Slicing + xuất JSON/XML/EDL
 ├── transcribe.py                # Phiên âm: Groq / OpenAI-compatible + trích audio
-├── script_gen.py                 # Sinh kịch bản: Google / Groq / OpenAI-compatible + trích JSON an toàn
+├── director.py                   # "AI trưởng nhóm": phân loại cảnh text-only vs vision, gộp block, van an toàn chi phí
+├── frame_extract.py                # Trích khung hình đại diện từ video (ffmpeg) cho các block cần vision
+├── llm_client.py                     # Lớp gọi LLM dùng chung (text + vision) cho mọi provider, có retry
+├── script_gen.py                       # Sinh kịch bản: điều phối qua director.py + trích JSON an toàn
 ├── tts.py                          # Text-to-speech: edge-tts + time-stretch (atempo), chạy song song
 ├── subtitles.py                     # Sinh file .srt
 ├── sync_assemble.py                   # Ghép audio + video + burn phụ đề bằng ffmpeg
 ├── modal_app.py                        # Stub triển khai chạy trên Modal.com (cloud)
 ├── workdir/                             # Tự động tạo — chứa file trung gian (video gốc, transcript, script, phụ đề...)
 ├── output/                               # Tự động tạo — chứa video recap hoàn chỉnh
-└── temp/                                  # Tự động tạo — cache audio trích xuất, audio TTS thô/đã chỉnh
+└── temp/                                  # Tự động tạo — cache audio trích xuất, audio TTS thô/đã chỉnh, khung hình tạm cho director (tự xoá sau khi chạy prepare)
 ```
 
 `workdir/`, `output/`, `temp/` được tự động tạo lần đầu chạy công cụ (không cần tạo tay).
@@ -358,6 +400,17 @@ Output cuối cùng: `output/recap_final.mp4`.
 
 ---
 
+## Chạy trên cloud (Modal.com)
+
+`modal_app.py` là một stub cơ bản để triển khai lên [Modal.com](https://modal.com) — build sẵn image có `ffmpeg` và cài đặt từ `requirements.txt`. Hiện tại chỉ có 1 hàm `hello()` để kiểm tra image chạy được; cần tự implement thêm hàm gọi các bước `prepare`/`render` nếu muốn chạy toàn bộ pipeline trên cloud thay vì máy local.
+
+```bash
+pip install modal
+modal setup            # đăng nhập/tạo token lần đầu
+modal run modal_app.py
+```
+
+---
 
 ## Xử lý sự cố (Troubleshooting)
 
@@ -388,6 +441,15 @@ Output cuối cùng: `output/recap_final.mp4`.
 **Muốn đổi giọng đọc tiếng Việt**
 → Xem danh sách giọng có sẵn: `edge-tts --list-voices | grep vi-VN`, rồi đổi `voice_vi` trong `config.toml`.
 
+**Director gọi vision quá nhiều / chi phí cao hơn mong đợi**
+→ Kiểm tra `[director]` trong `config.toml`: tăng `density_threshold`/`silence_ratio_threshold` để bớt nhạy, hoặc giảm `max_vision_ratio` (van an toàn) để ép trần thấp hơn. Có thể tắt hẳn bằng `enabled = false` để quay lại hành vi cũ (1 lần gọi LLM cho toàn bộ transcript, không tốn phí vision).
+
+**Director bỏ lỡ 1 đoạn hành động quan trọng (không gán vision)**
+→ Giảm `density_threshold` (vd 1.5) hoặc `silence_ratio_threshold` (vd 0.4) để nhạy hơn với cảnh ít thoại. Cách khác: tắt `confirm_with_llm` nếu nghi ngờ bước xác nhận đang loại nhầm đoạn đó.
+
+**`Vision provider chưa hỗ trợ: ...`**
+→ `[vision_service]` (hoặc `[llm_service]` nếu dùng chung) đang trỏ tới provider không hỗ trợ ảnh trong công cụ này. Hiện hỗ trợ `openai`-compatible (vd Cerebras gemma-4-31b) và `google` (Gemini/Gemma vision). Điền riêng `[vision_service]` trỏ tới 1 trong 2 provider này nếu `llm_service` của bạn là model text-only.
+
 ---
 
 ## Giới hạn hiện tại
@@ -395,7 +457,9 @@ Output cuối cùng: `output/recap_final.mp4`.
 - Chỉ hỗ trợ TTS qua `edge-tts` (chưa hỗ trợ ElevenLabs, Google TTS, v.v.).
 - `download.py` chỉ tải về, không hỗ trợ cắt đoạn theo timestamp URL.
 - `modal_app.py` chỉ là stub, chưa implement pipeline đầy đủ trên cloud.
-- Chưa có giao diện đồ họa (GUI) — toàn bộ thao tác qua CLI và chỉnh sửa file JSON tay.
+- Chưa có giao diện đồ họa (GUI) — toàn bộ thao tác qua CLI, trợ lý `setup` giúp cấu hình, nhưng chỉnh kịch bản vẫn qua file JSON tay.
+- Director hiện chỉ gửi ẢNH TĨNH (khung hình) cho model vision, không gửi video/audio thật — vì các model vision phổ biến hiện nay (kể cả Gemma 4 31B qua Cerebras) mới hỗ trợ image input, chưa hỗ trợ video input thương mại rộng rãi. Với các cảnh chuyển động nhanh, vài khung hình đại diện có thể không nắm bắt hết chi tiết.
+- Nhánh vision cho provider `google` cần thêm gói `Pillow` (đã có trong `requirements.txt`).
 - Chưa hỗ trợ đa ngôn ngữ đầu ra (prompt LLM hiện cố định yêu cầu viết kịch bản bằng tiếng Việt).
 
 ---
