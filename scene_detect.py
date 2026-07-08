@@ -17,8 +17,19 @@ def _get_video_duration(video_path: Path) -> float:
         "ffprobe", "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", str(video_path)
     ]
-    out = subprocess.run(cmd, capture_output=True, text=True, check=True).stdout.strip()
-    return float(out)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        out = result.stdout.strip()
+        if not out:
+            raise ValueError("ffprobe trả về kết quả rỗng (có thể file không phải video hoặc bị lỗi).")
+        return float(out)
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.strip() if e.stderr else "Không có thông tin lỗi từ stderr."
+        print(f"❌ Lỗi ffprobe khi đọc duration: {stderr}")
+        raise RuntimeError(f"Không thể đọc thông tin video. Hãy đảm bảo file tồn tại và là định dạng video hợp lệ.\nChi tiết: {stderr}")
+    except Exception as e:
+        print(f"❌ Lỗi không xác định khi lấy duration: {e}")
+        raise
 
 
 def _build_interval_scenes(video_path: Path, interval: float) -> list[dict]:
@@ -47,10 +58,6 @@ def _build_content_scenes(video_path: Path) -> list[dict]:
                 # Gộp cảnh ngắn vào cảnh liền trước
                 scenes[-1]["end"] = end_sec
                 continue
-            # Trước đây: nếu cảnh NGẮN đầu tiên xuất hiện khi scenes còn rỗng,
-            # nó bị drop hoàn toàn (không append, không gộp) -> vài giây đầu
-            # video biến mất khỏi danh sách cảnh, transcript/script mất mốc.
-            # Sửa: vẫn giữ lại làm cảnh đầu tiên thay vì bỏ qua.
         scenes.append({"scene_id": len(scenes), "start": round(start_sec, 3), "end": round(end_sec, 3)})
     return scenes
 

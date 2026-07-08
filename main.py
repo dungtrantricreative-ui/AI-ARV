@@ -33,71 +33,91 @@ def smart_agent_mode():
     
     # Vòng lặp chính của Agent
     while True:
-        user_input = input("\nBạn: ").strip()
-        if not user_input:
-            continue
-            
-        # Xử lý lệnh dừng ngay lập tức nếu người dùng nhập thủ công các từ khóa thoát
-        if user_input.lower() in ['exit', 'quit', 'q', 'dừng', 'thoát', 'stop']:
-            print("AI: Tạm biệt chủ nhân! Hẹn gặp lại.")
-            break
-
-        # AI xử lý yêu cầu
-        ai_data = agent.chat(user_input)
-        
-        # Nếu AI nhận diện ý định dừng chương trình
-        if ai_data.get("intent") == "stop_program":
-            print(f"AI: {ai_data['response']}")
-            break
-            
-        # Ưu tiên lấy video_path từ AI trích xuất (params) hoặc từ user_input trực tiếp
-        video_input = ai_data.get("params", {}).get("video_path") or user_input
-        
-        is_video_input = False
-        video_path = None
-        
-        # Kiểm tra xem video_input có phải là URL hay Path hợp lệ không
-        if str(video_input).startswith("http"):
-            is_video_input = True
-            print(f"AI: Đang tải video từ URL: {video_input} ...")
-            try:
-                video_path = download_video(video_input)
-            except Exception as e:
-                print(f"AI: Lỗi khi tải video: {e}")
+        try:
+            user_input = input("\nBạn: ").strip()
+            if not user_input:
                 continue
-        elif os.path.exists(str(video_input)) and str(video_input).lower().endswith(('.mp4', '.mkv', '.avi', '.mov')):
-            is_video_input = True
-            video_path = Path(video_input).resolve()
-            dest_path = config.WORK_DIR / "source.mp4"
-            if video_path != dest_path: 
-                shutil.copy(video_path, dest_path)
-            video_path = dest_path
+                
+            # Xử lý lệnh dừng ngay lập tức nếu người dùng nhập thủ công các từ khóa thoát
+            if user_input.lower() in ['exit', 'quit', 'q', 'dừng', 'thoát', 'stop']:
+                print("AI: Tạm biệt chủ nhân! Hẹn gặp lại.")
+                break
 
-        if is_video_input and video_path:
-            # Chạy Prepare tự động khi có video mới
-            print(f"\nAI: Đã nhận video tại {video_path}. Đang phân tích phim và soạn kịch bản nháp...")
-            if config.TEMP_DIR.exists(): shutil.rmtree(config.TEMP_DIR)
-            config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
+            # AI xử lý yêu cầu
+            ai_data = agent.chat(user_input)
             
-            scenes = detect_scenes(video_path)
-            transcript = transcribe_video(video_path)
-            draft_path = config.WORK_DIR / "script_draft.json"
-            generate_script(transcript, scenes, draft_path, video_path=video_path)
+            # Nếu AI nhận diện ý định dừng chương trình
+            if ai_data.get("intent") == "stop_program":
+                print(f"AI: {ai_data['response']}")
+                break
+                
+            # Ưu tiên lấy video_path từ AI trích xuất (params) hoặc từ user_input trực tiếp
+            video_input = ai_data.get("params", {}).get("video_path") or user_input
             
-            print(f"AI: Phân tích xong! Kịch bản nháp đã sẵn sàng tại {draft_path}.")
-            print("AI: Bạn có muốn chỉnh sửa gì không, hay gõ 'render' để tôi bắt đầu dựng phim?")
-            continue
+            is_video_input = False
+            video_path = None
+            
+            # Kiểm tra xem video_input có phải là URL hay Path hợp lệ không
+            # Chú ý: Cần làm sạch chuỗi vì đôi khi AI trả về cả text bọc quanh path
+            video_input_str = str(video_input).strip("'\" ")
+            
+            if video_input_str.startswith("http"):
+                is_video_input = True
+                print(f"AI: Đang tải video từ URL: {video_input_str} ...")
+                try:
+                    video_path = download_video(video_input_str)
+                except Exception as e:
+                    print(f"AI: Lỗi khi tải video: {e}")
+                    continue
+            elif os.path.exists(video_input_str) and video_input_str.lower().endswith(('.mp4', '.mkv', '.avi', '.mov')):
+                is_video_input = True
+                video_path = Path(video_input_str).resolve()
+                dest_path = config.WORK_DIR / "source.mp4"
+                
+                # Đảm bảo thư mục workdir tồn tại
+                config.WORK_DIR.mkdir(parents=True, exist_ok=True)
+                
+                if video_path != dest_path: 
+                    print(f"AI: Đang sao chép video vào bộ nhớ tạm...")
+                    shutil.copy(video_path, dest_path)
+                video_path = dest_path
 
-        # Nếu người dùng muốn render
-        if ai_data.get("intent") == "start_render" or user_input.lower() == 'render':
-            if not (config.WORK_DIR / "source.mp4").exists():
-                print("AI: Chủ nhân ơi, tôi chưa có video đầu vào để render. Hãy cho tôi link hoặc path video trước nhé!")
-            else:
-                run_render_flow()
-            continue
+            if is_video_input and video_path:
+                # Chạy Prepare tự động khi có video mới
+                print(f"\nAI: Đã nhận video. Đang phân tích phim và soạn kịch bản nháp...")
+                try:
+                    if config.TEMP_DIR.exists(): shutil.rmtree(config.TEMP_DIR)
+                    config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
+                    
+                    scenes = detect_scenes(video_path)
+                    transcript = transcribe_video(video_path)
+                    draft_path = config.WORK_DIR / "script_draft.json"
+                    generate_script(transcript, scenes, draft_path, video_path=video_path)
+                    
+                    print(f"AI: Phân tích xong! Kịch bản nháp đã sẵn sàng tại {draft_path}.")
+                    print("AI: Bạn có muốn chỉnh sửa gì không, hay gõ 'render' để tôi bắt đầu dựng phim?")
+                except Exception as e:
+                    print(f"AI: ❌ Có lỗi xảy ra trong quá trình phân tích video: {e}")
+                    print("AI: Bạn hãy kiểm tra lại file video hoặc thử lại nhé.")
+                continue
 
-        # Mặc định là trả lời chat bình thường hoặc kết quả terminal
-        print(f"AI: {ai_data['response']}")
+            # Nếu người dùng muốn render
+            if ai_data.get("intent") == "start_render" or user_input.lower() == 'render':
+                if not (config.WORK_DIR / "source.mp4").exists():
+                    print("AI: Chủ nhân ơi, tôi chưa có video đầu vào để render. Hãy cho tôi link hoặc path video trước nhé!")
+                else:
+                    run_render_flow()
+                continue
+
+            # Mặc định là trả lời chat bình thường hoặc kết quả terminal
+            print(f"AI: {ai_data['response']}")
+            
+        except KeyboardInterrupt:
+            print("\nAI: Tạm biệt chủ nhân!")
+            break
+        except Exception as e:
+            print(f"AI: ⚠️ Lỗi hệ thống: {e}")
+            continue
 
 
 def run_render_flow():
@@ -113,31 +133,34 @@ def run_render_flow():
     if not final_path.exists():
         shutil.copy(draft_path, final_path)
 
-    with open(final_path, "r", encoding="utf-8") as f:
-        script = json.load(f)
+    try:
+        with open(final_path, "r", encoding="utf-8") as f:
+            script = json.load(f)
 
-    tts_segments = process_all_tts(script)
-    srt_path = config.WORK_DIR / "recap.srt"
-    generate_srt(tts_segments, srt_path)
+        tts_segments = process_all_tts(script)
+        srt_path = config.WORK_DIR / "recap.srt"
+        generate_srt(tts_segments, srt_path)
 
-    output_path = config.OUTPUT_DIR / "recap_final.mp4"
-    if output_path.exists(): os.remove(output_path)
-        
-    success = assemble_video_and_audio(
-        config.WORK_DIR / "source.mp4",
-        srt_path,
-        tts_segments,
-        output_path,
-        bgm_path=agent.bgm_path,
-        bgm_volume=agent.bgm_volume,
-        bgm_loop=agent.bgm_loop
-    )
+        output_path = config.OUTPUT_DIR / "recap_final.mp4"
+        if output_path.exists(): os.remove(output_path)
+            
+        success = assemble_video_and_audio(
+            config.WORK_DIR / "source.mp4",
+            srt_path,
+            tts_segments,
+            output_path,
+            bgm_path=agent.bgm_path,
+            bgm_volume=agent.bgm_volume,
+            bgm_loop=agent.bgm_loop
+        )
 
-    if success:
-        print(f"\n🎉 AI: TUYỆT VỜI! Video đã xong tại: {output_path}")
-    else:
-        explanation = agent.report_error("FF-ERR-500", "Lỗi trong quá trình ghép video cuối cùng.")
-        print(f"\nAI: {explanation}")
+        if success:
+            print(f"\n🎉 AI: TUYỆT VỜI! Video đã xong tại: {output_path}")
+        else:
+            explanation = agent.report_error("FF-ERR-500", "Lỗi trong quá trình ghép video cuối cùng.")
+            print(f"\nAI: {explanation}")
+    except Exception as e:
+        print(f"AI: ❌ Lỗi khi render: {e}")
 
 
 def main():
