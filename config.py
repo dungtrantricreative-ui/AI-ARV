@@ -9,13 +9,16 @@ try:
 except ImportError:
     pass
 
+# BASE_DIR nên là thư mục chứa file config.py này
 BASE_DIR = Path(__file__).parent.resolve()
+
+# Đảm bảo các thư mục quan trọng luôn nằm trong BASE_DIR
 WORK_DIR = BASE_DIR / "workdir"
 OUTPUT_DIR = BASE_DIR / "output"
 TEMP_DIR = BASE_DIR / "temp"
 
 for d in [WORK_DIR, OUTPUT_DIR, TEMP_DIR]:
-    d.mkdir(exist_ok=True)
+    d.mkdir(parents=True, exist_ok=True)
 
 # Đọc config.toml
 CONFIG_PATH = BASE_DIR / "config.toml"
@@ -33,11 +36,6 @@ def _get(section, key, default):
 
 
 def _resolve_api_key(section, generic_env, provider, provider_env_map):
-    """Ưu tiên: config.toml -> env chung (vd ASR_API_KEY) -> env riêng theo provider.
-
-    provider_env_map: dict {provider_name: env_var_name}. Chỉ fallback vào
-    env var TƯƠNG ỨNG với provider đang chọn, tránh lấy nhầm key của provider khác.
-    """
     key = _get(section, "api_key", "")
     if key:
         return key
@@ -80,7 +78,7 @@ MIN_SCENE_DURATION = MIN_SCENE_LEN_SEC
 SCENE_INTERVAL_SECONDS = float(_get("scene_detect", "interval_seconds", 5.0))
 SCENE_OUTPUT_FORMAT = _get("scene_detect", "output_format", "json")  # "json" | "xml" | "edl"
 
-# --- Director (điều phối text-only vs vision) ---
+# --- Director ---
 DIRECTOR_ENABLED = bool(_get("director", "enabled", True))
 DIRECTOR_DENSITY_THRESHOLD = float(_get("director", "density_threshold", 3.0))
 DIRECTOR_SILENCE_RATIO_THRESHOLD = float(_get("director", "silence_ratio_threshold", 0.6))
@@ -92,8 +90,7 @@ DIRECTOR_CONFIRM_WITH_LLM = bool(_get("director", "confirm_with_llm", True))
 DIRECTOR_FORCE_VISION_FIRST_SCENE = bool(_get("director", "force_vision_first_scene", True))
 DIRECTOR_MAX_VISION_RATIO = float(_get("director", "max_vision_ratio", 0.35))
 
-# --- Vision service (mô hình xem hình, vd Gemma 4 31B qua Cerebras) ---
-# Nếu để trống, dùng chung cấu hình với [llm_service] (cùng provider/model/key).
+# --- Vision service ---
 _vision_provider = _get("vision_service", "provider", "")
 VISION_PROVIDER = _vision_provider if _vision_provider else LLM_PROVIDER
 _vision_base_url = _get("vision_service", "base_url", "")
@@ -104,7 +101,6 @@ _vision_api_key = _get("vision_service", "api_key", "")
 if _vision_api_key:
     VISION_API_KEY = _vision_api_key
 elif _vision_provider:
-    # provider riêng cho vision nhưng không có api_key riêng -> thử env chung/riêng
     VISION_API_KEY = _resolve_api_key(
         "vision_service", "VISION_API_KEY", VISION_PROVIDER,
         {"google": "GOOGLE_API_KEY", "groq": "GROQ_API_KEY", "openai": "OPENAI_API_KEY"}

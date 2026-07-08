@@ -3,6 +3,7 @@ import sys
 import json
 import shutil
 import argparse
+import subprocess
 from pathlib import Path
 
 import config
@@ -23,6 +24,19 @@ def check_dependencies():
             sys.exit(1)
 
 
+def is_valid_video(video_path: Path) -> bool:
+    """Kiểm tra xem file có phải là video hợp lệ và không bị lỗi moov atom không."""
+    cmd = [
+        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", str(video_path)
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        return result.returncode == 0
+    except:
+        return False
+
+
 def smart_agent_mode():
     check_dependencies()
     print("\n" + "🤖"*20)
@@ -38,28 +52,21 @@ def smart_agent_mode():
             if not user_input:
                 continue
                 
-            # Xử lý lệnh dừng ngay lập tức nếu người dùng nhập thủ công các từ khóa thoát
             if user_input.lower() in ['exit', 'quit', 'q', 'dừng', 'thoát', 'stop']:
                 print("AI: Tạm biệt chủ nhân! Hẹn gặp lại.")
                 break
 
-            # AI xử lý yêu cầu
             ai_data = agent.chat(user_input)
             
-            # Nếu AI nhận diện ý định dừng chương trình
             if ai_data.get("intent") == "stop_program":
                 print(f"AI: {ai_data['response']}")
                 break
                 
-            # Ưu tiên lấy video_path từ AI trích xuất (params) hoặc từ user_input trực tiếp
             video_input = ai_data.get("params", {}).get("video_path") or user_input
+            video_input_str = str(video_input).strip("'\" ")
             
             is_video_input = False
             video_path = None
-            
-            # Kiểm tra xem video_input có phải là URL hay Path hợp lệ không
-            # Chú ý: Cần làm sạch chuỗi vì đôi khi AI trả về cả text bọc quanh path
-            video_input_str = str(video_input).strip("'\" ")
             
             if video_input_str.startswith("http"):
                 is_video_input = True
@@ -71,22 +78,29 @@ def smart_agent_mode():
                     continue
             elif os.path.exists(video_input_str) and video_input_str.lower().endswith(('.mp4', '.mkv', '.avi', '.mov')):
                 is_video_input = True
-                video_path = Path(video_input_str).resolve()
+                video_path_orig = Path(video_input_str).resolve()
                 dest_path = config.WORK_DIR / "source.mp4"
                 
-                # Đảm bảo thư mục workdir tồn tại
-                config.WORK_DIR.mkdir(parents=True, exist_ok=True)
-                
-                if video_path != dest_path: 
+                # Kiểm tra file gốc trước khi copy
+                if not is_valid_video(video_path_orig):
+                    print(f"AI: ❌ File video gốc có vẻ bị lỗi (moov atom not found hoặc không hợp lệ).")
+                    print(f"AI: Bạn hãy kiểm tra lại file tại: {video_path_orig}")
+                    continue
+
+                if video_path_orig != dest_path: 
                     print(f"AI: Đang sao chép video vào bộ nhớ tạm...")
-                    shutil.copy(video_path, dest_path)
+                    # Xóa file cũ nếu có để tránh lỗi moov atom do ghi đè không hết
+                    if dest_path.exists():
+                        dest_path.unlink()
+                    shutil.copy2(video_path_orig, dest_path)
                 video_path = dest_path
 
             if is_video_input and video_path:
-                # Chạy Prepare tự động khi có video mới
                 print(f"\nAI: Đã nhận video. Đang phân tích phim và soạn kịch bản nháp...")
                 try:
-                    if config.TEMP_DIR.exists(): shutil.rmtree(config.TEMP_DIR)
+                    # Dọn dẹp temp cũ
+                    if config.TEMP_DIR.exists():
+                        shutil.rmtree(config.TEMP_DIR)
                     config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
                     
                     scenes = detect_scenes(video_path)
@@ -98,10 +112,8 @@ def smart_agent_mode():
                     print("AI: Bạn có muốn chỉnh sửa gì không, hay gõ 'render' để tôi bắt đầu dựng phim?")
                 except Exception as e:
                     print(f"AI: ❌ Có lỗi xảy ra trong quá trình phân tích video: {e}")
-                    print("AI: Bạn hãy kiểm tra lại file video hoặc thử lại nhé.")
                 continue
 
-            # Nếu người dùng muốn render
             if ai_data.get("intent") == "start_render" or user_input.lower() == 'render':
                 if not (config.WORK_DIR / "source.mp4").exists():
                     print("AI: Chủ nhân ơi, tôi chưa có video đầu vào để render. Hãy cho tôi link hoặc path video trước nhé!")
@@ -109,7 +121,6 @@ def smart_agent_mode():
                     run_render_flow()
                 continue
 
-            # Mặc định là trả lời chat bình thường hoặc kết quả terminal
             print(f"AI: {ai_data['response']}")
             
         except KeyboardInterrupt:
@@ -129,7 +140,6 @@ def run_render_flow():
         print("AI: Lỗi: Không tìm thấy kịch bản nháp. Vui lòng cung cấp video trước.")
         return
 
-    # Luôn đồng bộ kịch bản mới nhất nếu người dùng chưa sửa file final
     if not final_path.exists():
         shutil.copy(draft_path, final_path)
 
@@ -177,7 +187,6 @@ def main():
     elif args.command == "render":
         run_render_flow()
     else:
-        # Giữ tương thích cho các lệnh cũ nếu cần
         pass
 
 if __name__ == "__main__":
