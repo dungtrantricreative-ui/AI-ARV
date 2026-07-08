@@ -50,22 +50,24 @@ def smart_agent_mode():
             print(f"AI: {ai_data['response']}")
             break
             
-        # Xử lý nhận diện video (nếu chưa có video hoặc người dùng đưa link mới)
-        # Chúng ta kiểm tra xem user_input có vẻ là link hoặc path video không
+        # Ưu tiên lấy video_path từ AI trích xuất (params) hoặc từ user_input trực tiếp
+        video_input = ai_data.get("params", {}).get("video_path") or user_input
+        
         is_video_input = False
         video_path = None
         
-        if user_input.startswith("http"):
+        # Kiểm tra xem video_input có phải là URL hay Path hợp lệ không
+        if str(video_input).startswith("http"):
             is_video_input = True
-            print("AI: Đang tải video cho bạn, đợi tôi một chút...")
+            print(f"AI: Đang tải video từ URL: {video_input} ...")
             try:
-                video_path = download_video(user_input)
+                video_path = download_video(video_input)
             except Exception as e:
                 print(f"AI: Lỗi khi tải video: {e}")
                 continue
-        elif os.path.exists(user_input) and user_input.lower().endswith(('.mp4', '.mkv', '.avi', '.mov')):
+        elif os.path.exists(str(video_input)) and str(video_input).lower().endswith(('.mp4', '.mkv', '.avi', '.mov')):
             is_video_input = True
-            video_path = Path(user_input).resolve()
+            video_path = Path(video_input).resolve()
             dest_path = config.WORK_DIR / "source.mp4"
             if video_path != dest_path: 
                 shutil.copy(video_path, dest_path)
@@ -73,7 +75,7 @@ def smart_agent_mode():
 
         if is_video_input and video_path:
             # Chạy Prepare tự động khi có video mới
-            print("\nAI: Đã nhận video. Đang phân tích phim và soạn kịch bản nháp...")
+            print(f"\nAI: Đã nhận video tại {video_path}. Đang phân tích phim và soạn kịch bản nháp...")
             if config.TEMP_DIR.exists(): shutil.rmtree(config.TEMP_DIR)
             config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
             
@@ -107,6 +109,7 @@ def run_render_flow():
         print("AI: Lỗi: Không tìm thấy kịch bản nháp. Vui lòng cung cấp video trước.")
         return
 
+    # Luôn đồng bộ kịch bản mới nhất nếu người dùng chưa sửa file final
     if not final_path.exists():
         shutil.copy(draft_path, final_path)
 
