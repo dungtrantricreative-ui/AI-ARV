@@ -1,19 +1,23 @@
 [asr_service]
 provider = "groq"
 base_url = "https://api.groq.com"
-api_key = ""
 model = "whisper-large-v3"
+api_key = "gsk_..."  # Groq key
 
 [llm_service]
-provider = "google"
-base_url = "https://generativelanguage.googleapis.com"
-api_key = ""
-model = "gemini-2.0-flash-exp"
+# Cerebras dùng OpenAI-compatible API → provider = "openai"
+provider = "openai"
+base_url = "https://api.cerebras.ai/v1"
+model = "gemma-4-31b"
+api_key = "csk_..."  # Cerebras key
 
 [tts_service]
 provider = "edge"
 voice_vi = "vi-VN-HoaiMyNeural"
 
 [scene_detect]
+method = "interval"
 threshold = 27.0
 min_duration = 1.5
+interval_seconds = 5.0
+output_format = "json"
