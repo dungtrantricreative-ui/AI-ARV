@@ -2,35 +2,27 @@
 provider = "groq"
 base_url = "https://api.groq.com"
 model = "whisper-large-v3"
-# DÁN KEY THẬT VÀO ĐÂY (để trống "" nếu muốn lấy từ biến môi trường GROQ_API_KEY)
-api_key = ""
+api_key = "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"
 
 [llm_service]
-# Cerebras dùng OpenAI-compatible API → provider = "openai"
 provider = "openai"
 base_url = "https://api.cerebras.ai/v1"
 model = "gemma-4-31b"
-# DÁN KEY THẬT VÀO ĐÂY (để trống "" nếu muốn lấy từ biến môi trường OPENAI_API_KEY)
-api_key = ""
+api_key = "csk-vdmwee9e6kpmpyxdcfkvrxrcyhekh5w6vk39nwfc9wxmpkhk"
 
 [vision_service]
-# gemma-4-31b trên Cerebras đã hỗ trợ ảnh -> để trống để dùng chung key/model
-# với [llm_service] ở trên, không cần khai báo lại.
 provider = ""
 base_url = ""
 model = ""
 api_key = ""
 
 [director]
-# "AI trưởng nhóm": chỉ gửi khung hình cho model vision ở những đoạn ít/không
-# có thoại (director.py tính density thoại + tỉ lệ im lặng cho từng cảnh).
-# Điều này giữ chi phí thấp vì phần lớn phim vẫn chạy text-only như cũ.
 enabled = true
 density_threshold = 3.0
 silence_ratio_threshold = 0.6
 max_vision_block_seconds = 40.0
 max_text_block_seconds = 300.0
-frames_per_block = 3
+frames_per_block = 2
 frame_max_width = 512
 confirm_with_llm = true
 force_vision_first_scene = true

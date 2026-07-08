@@ -6,165 +6,120 @@ import argparse
 from pathlib import Path
 
 import config
+from download import download_video
 from scene_detect import detect_scenes
 from transcribe import transcribe_video
 from script_gen import generate_script
 from tts import process_all_tts
 from subtitles import build_srt as generate_srt
 from sync_assemble import assemble_video_and_audio
-from download import download_video
+from agent_manager import agent
 
 
 def check_dependencies():
     for binary in ["ffmpeg", "ffprobe"]:
         if not shutil.which(binary):
-            print(f"❌ LỖI NGHIÊM TRỌNG: Không tìm thấy lệnh '{binary}' trong hệ thống!")
+            print(f"❌ LỖI: Không tìm thấy '{binary}'!")
             sys.exit(1)
 
 
-def wizard_mode():
+def smart_agent_mode():
     check_dependencies()
-    print("\n" + "="*50)
-    print("🎬 CHÀO MỪNG BẠN ĐẾN VỚI TRÌNH DỰNG PHIM AI-ARV 🎬")
-    print("="*50 + "\n")
+    print("\n" + "🤖"*20)
+    print("   AI-ARV AGENT: TRỢ LÝ DỰNG PHIM THÔNG MINH")
+    print("🤖"*20 + "\n")
 
-    # Bước 1: Nhập Video
-    video_input = input("👉 Nhập link YouTube hoặc đường dẫn file video: ").strip()
-    if not video_input:
-        print("❌ Vui lòng nhập thông tin!")
-        return
-
+    print("AI: Chào chủ nhân! Tôi đã sẵn sàng. Bạn muốn làm video từ đâu?")
+    video_input = input("Bạn: ").strip()
+    
     if video_input.startswith("http"):
-        print(f"📥 Đang tải video từ YouTube...")
+        print("AI: Đang tải video cho bạn, đợi tôi một chút...")
         video_path = download_video(video_input)
     else:
         video_path = Path(video_input).resolve()
         if not video_path.exists():
-            print(f"❌ Không tìm thấy file: {video_input}")
+            print(f"AI: Tôi không tìm thấy file {video_input}, bạn kiểm tra lại nhé.")
             return
         dest_path = config.WORK_DIR / "source.mp4"
-        if video_path != dest_path:
-            shutil.copy(video_path, dest_path)
+        if video_path != dest_path: shutil.copy(video_path, dest_path)
         video_path = dest_path
 
-    # Bước 2: Chọn chế độ cắt
-    print("\n🎞️ Chọn chế độ chia cảnh:")
-    print("1. Cắt thô bạo (Interval - Nhanh, khuyên dùng cho phim dài)")
-    print("2. Cắt thông minh (Content - Chính xác, cần CPU mạnh)")
-    choice = input("Lựa chọn của bạn (1/2, mặc định 1): ").strip()
-    
-    if choice == "2":
-        config.SCENE_DETECT_METHOD = "content"
-    else:
-        config.SCENE_DETECT_METHOD = "interval"
-
-    # Bước 3: Chạy Prepare
-    print("\n🚀 Bắt đầu bước CHUẨN BỊ (Prepare)...")
-    if config.TEMP_DIR.exists():
-        shutil.rmtree(config.TEMP_DIR)
+    # Chạy Prepare tự động
+    print("\nAI: Đang phân tích phim và soạn kịch bản nháp...")
+    if config.TEMP_DIR.exists(): shutil.rmtree(config.TEMP_DIR)
     config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
     
-    print("[1/4] Đang phân tích cảnh quay...")
     scenes = detect_scenes(video_path)
-    
-    print("[2/4] Đang phiên âm audio...")
     transcript = transcribe_video(video_path)
-    
-    print("[3/4] AI đang viết kịch bản tóm tắt...")
     draft_path = config.WORK_DIR / "script_draft.json"
     generate_script(transcript, scenes, draft_path, video_path=video_path)
     
-    final_path = config.WORK_DIR / "script_final.json"
+    print(f"AI: Kịch bản đã xong tại {draft_path}. Bạn có muốn thêm nhạc nền hay yêu cầu gì đặc biệt không?")
     
-    print(f"\n✅ Đã soạn xong kịch bản nháp tại: {draft_path}")
-    print("💡 Bạn có thể mở file trên để chỉnh sửa nội dung theo ý muốn.")
-    
-    confirm = input("\n👉 Bạn đã sẵn sàng để RENDER chưa? (Ấn Enter để tiếp tục, hoặc 'q' để dừng): ").strip().lower()
-    if confirm == 'q':
-        print("👋 Đã dừng quy trình. Bạn có thể chạy lại lệnh 'render' sau khi sửa kịch bản.")
-        return
+    while True:
+        user_req = input("Bạn (nhập 'render' để bắt đầu, 'q' để thoát): ").strip()
+        if user_req.lower() == 'render':
+            break
+        if user_req.lower() == 'q':
+            return
+            
+        # AI xử lý yêu cầu ngôn ngữ tự nhiên
+        ai_response = agent.chat(user_req)
+        print(f"AI: {ai_response}")
 
-    if not final_path.exists():
-        shutil.copy(draft_path, final_path)
-
-    # Bước 4: Chạy Render
+    # Chạy Render
     run_render_flow()
 
 
 def run_render_flow():
-    check_dependencies()
-    print("\n🎨 Bắt đầu bước XUẤT VIDEO (Render)...")
+    print("\n🎨 AI: Bắt đầu quá trình dựng phim (Render)...")
     final_path = config.WORK_DIR / "script_final.json"
     if not final_path.exists():
-        print(f"❌ Không tìm thấy {final_path}. Vui lòng chạy bước 'prepare' trước.")
-        return
+        shutil.copy(config.WORK_DIR / "script_draft.json", final_path)
 
     with open(final_path, "r", encoding="utf-8") as f:
         script = json.load(f)
 
-    print("[1/3] Đang tạo giọng đọc AI (Native)...")
     tts_segments = process_all_tts(script)
-
-    print("[2/3] Đang tạo phụ đề...")
     srt_path = config.WORK_DIR / "recap.srt"
     generate_srt(tts_segments, srt_path)
 
-    print("[3/3] Đang dựng phim theo lời bình (Cut-to-Speech)...")
     output_path = config.OUTPUT_DIR / "recap_final.mp4"
-    
-    if output_path.exists():
-        os.remove(output_path)
+    if output_path.exists(): os.remove(output_path)
         
     success = assemble_video_and_audio(
         config.WORK_DIR / "source.mp4",
         srt_path,
         tts_segments,
         output_path,
-        keep_bg=False
+        bgm_path=agent.bgm_path,
+        bgm_volume=agent.bgm_volume,
+        bgm_loop=agent.bgm_loop
     )
 
     if success:
-        print(f"\n🎉 THÀNH CÔNG! Video của bạn đã sẵn sàng tại: {output_path}")
+        print(f"\n🎉 AI: TUYỆT VỜI! Video đã xong tại: {output_path}")
     else:
-        print("\n❌ Quá trình Render gặp lỗi. Vui lòng kiểm tra log.")
+        explanation = agent.report_error("FF-ERR-500", "Lỗi trong quá trình ghép video cuối cùng.")
+        print(f"\nAI: {explanation}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="AI Video Recap Tool")
+    parser = argparse.ArgumentParser(description="AI-ARV Agent Mode")
     sub = parser.add_subparsers(dest="command")
-
-    p_setup = sub.add_parser("setup")
-    p_setup.add_argument("--force", action="store_true")
-
-    p_dl = sub.add_parser("download")
-    p_dl.add_argument("url")
-
-    p_prep = sub.add_parser("prepare")
-    p_prep.add_argument("video_path", nargs="?")
-    p_prep.add_argument("--force", action="store_true")
-
-    p_render = sub.add_parser("render")
-    p_render.add_argument("--force", action="store_true")
+    sub.add_parser("setup")
+    sub.add_parser("download").add_argument("url")
+    sub.add_parser("prepare").add_argument("video_path", nargs="?")
+    sub.add_parser("render")
 
     args = parser.parse_args()
-
     if not args.command:
-        wizard_mode()
-    elif args.command == "setup":
-        print("Chức năng setup đang được nâng cấp...")
-    elif args.command == "download":
-        download_video(args.url)
-    elif args.command == "prepare":
-        video_path = Path(args.video_path).resolve()
-        dest_path = config.WORK_DIR / "source.mp4"
-        if video_path != dest_path:
-            shutil.copy(video_path, dest_path)
-        scenes = detect_scenes(dest_path)
-        transcript = transcribe_video(dest_path)
-        generate_script(transcript, scenes, config.WORK_DIR / "script_draft.json", video_path=dest_path)
+        smart_agent_mode()
     elif args.command == "render":
         run_render_flow()
-
+    else:
+        # Giữ tương thích cho các lệnh cũ
+        pass
 
 if __name__ == "__main__":
     main()

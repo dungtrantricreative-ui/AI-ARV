@@ -1,6 +1,7 @@
 import os
 import platform
 import subprocess
+import json
 from pathlib import Path
 import config
 
@@ -20,12 +21,19 @@ def get_ffmpeg_compatible_subtitles_filter(srt_path):
     return f"subtitles='{path_str}':force_style='{force_style}'"
 
 
-def assemble_video_and_audio(original_video, srt_path, tts_segments, output_video_path, keep_bg=False, no_subs=False):
+def get_duration(file_path):
+    cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(file_path)]
+    try:
+        return float(subprocess.run(cmd, capture_output=True, text=True).stdout.strip())
+    except:
+        return 0
+
+
+def assemble_video_and_audio(original_video, srt_path, tts_segments, output_video_path, bgm_path=None, bgm_volume=0.2, bgm_loop=True, no_subs=False):
     if not os.path.exists(original_video):
-        print(f"❌ Không tìm thấy video gốc: {original_video}")
+        print(f"❌ Lỗi: Không tìm thấy video gốc tại {original_video}")
         return False
 
-    # Cập nhật file SRT dựa trên độ dài thực tế của audio
     update_srt_with_native_duration(srt_path, tts_segments)
 
     filter_complex = ""
@@ -35,7 +43,6 @@ def assemble_video_and_audio(original_video, srt_path, tts_segments, output_vide
     inputs = ["-i", str(original_video)]
     for i, seg in enumerate(tts_segments):
         inputs.extend(["-i", seg["audio_path"]])
-        # Cắt video khớp với độ dài audio
         filter_complex += f"[0:v]trim=start={seg['start']}:duration={seg['duration']},setpts=PTS-STARTPTS[v{i}];"
         filter_complex += f"[{i+1}:a]asplit=1[a{i}];"
         v_segments += f"[v{i}]"
@@ -43,11 +50,27 @@ def assemble_video_and_audio(original_video, srt_path, tts_segments, output_vide
 
     n = len(tts_segments)
     if n > 0:
-        filter_complex += f"{v_segments}concat=n={n}:v=1:a=0[vout];"
-        filter_complex += f"{a_segments}concat=n={n}:v=0:a=1[aout]"
+        filter_complex += f"{v_segments}concat=n={n}:v=1:a=0[v_concat];"
+        filter_complex += f"{a_segments}concat=n={n}:v=0:a=1[a_tts_mix];"
     else:
-        print("⚠️ Không có đoạn thoại nào để ghép.")
         return False
+
+    # Xử lý Nhạc nền (BGM)
+    if bgm_path and os.path.exists(bgm_path):
+        inputs.extend(["-i", str(bgm_path)])
+        bgm_idx = n + 1
+        video_duration = sum(seg["duration"] for seg in tts_segments)
+        bgm_duration = get_duration(bgm_path)
+        
+        if bgm_loop and bgm_duration > 0 and bgm_duration < video_duration:
+            # Lặp nhạc nền nếu ngắn hơn video
+            filter_complex += f"[{bgm_idx}:a]aloop=loop=-1:size=2e9[a_bgm_raw];[a_bgm_raw]volume={bgm_volume}[a_bgm];"
+        else:
+            filter_complex += f"[{bgm_idx}:a]volume={bgm_volume}[a_bgm];"
+        
+        filter_complex += f"[a_tts_mix][a_bgm]amix=inputs=2:duration=first:normalize=0[aout]"
+    else:
+        filter_complex += f"[a_tts_mix]asplit=1[aout]"
 
     sub_filter = None
     if not no_subs and os.path.exists(srt_path):
@@ -57,50 +80,37 @@ def assemble_video_and_audio(original_video, srt_path, tts_segments, output_vide
     cmd.extend(inputs)
     
     if sub_filter:
-        final_filter = f"{filter_complex};[vout]{sub_filter}[vfinal]"
+        final_filter = f"{filter_complex};[v_concat]{sub_filter}[vfinal]"
         cmd.extend(["-filter_complex", final_filter])
         cmd.extend(["-map", "[vfinal]", "-map", "[aout]"])
     else:
         cmd.extend(["-filter_complex", filter_complex])
-        cmd.extend(["-map", "[vout]", "-map", "[aout]"])
+        cmd.extend(["-map", "[v_concat]", "-map", "[aout]"])
 
     cmd.extend(["-c:v", "libx264", "-crf", "23", "-preset", "fast", "-c:a", "aac", "-b:a", "192k"])
     cmd.extend([str(output_video_path)])
 
-    print(f"🎬 Đang dựng phim theo lời bình (Cut-to-Speech)...")
+    print(f"🎬 Đang dựng phim với nhạc nền và Cut-to-Speech...")
     result = subprocess.run(cmd, capture_output=True, text=True)
     
     if result.returncode != 0:
-        log_path = config.WORK_DIR / "ffmpeg_assemble_error.log"
+        log_path = config.WORK_DIR / "ffmpeg_error.log"
         log_path.write_text(result.stderr, encoding="utf-8")
-        print(f"❌ Lỗi ffmpeg (xem đầy đủ tại {log_path}):\n{result.stderr[-2000:]}")
+        # Mã lỗi tượng trưng để Agent giải thích
+        print(f"❌ LỖI HỆ THỐNG (Mã: FF-ERR-500). Chi tiết: {result.stderr[-500:]}")
         return False
         
-    print(f"✅ Xong: {output_video_path}")
     return True
 
 
 def update_srt_with_native_duration(srt_path, tts_segments):
-    if not os.path.exists(srt_path):
-        return
-
+    if not os.path.exists(srt_path): return
     def format_srt_time(seconds):
-        hrs = int(seconds // 3600)
-        mins = int((seconds % 3600) // 60)
-        secs = int(seconds % 60)
-        msecs = int((seconds % 1) * 1000)
+        hrs = int(seconds // 3600); mins = int((seconds % 3600) // 60); secs = int(seconds % 60); msecs = int((seconds % 1) * 1000)
         return f"{hrs:02d}:{mins:02d}:{secs:02d},{msecs:03d}"
-
-    current_time = 0.0
-    new_lines = []
+    current_time = 0.0; new_lines = []
     for i, seg in enumerate(tts_segments):
-        start_str = format_srt_time(current_time)
-        end_str = format_srt_time(current_time + seg["duration"])
-        new_lines.append(f"{i+1}")
-        new_lines.append(f"{start_str} --> {end_str}")
-        new_lines.append(seg["text"])
-        new_lines.append("")
+        start_str = format_srt_time(current_time); end_str = format_srt_time(current_time + seg["duration"])
+        new_lines.extend([f"{i+1}", f"{start_str} --> {end_str}", seg["text"], ""])
         current_time += seg["duration"]
-
-    with open(srt_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(new_lines))
+    with open(srt_path, "w", encoding="utf-8") as f: f.write("\n".join(new_lines))
