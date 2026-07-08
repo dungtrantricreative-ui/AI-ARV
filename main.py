@@ -62,65 +62,71 @@ def smart_agent_mode():
                 print(f"AI: {ai_data['response']}")
                 break
                 
-            video_input = ai_data.get("params", {}).get("video_path") or user_input
-            video_input_str = str(video_input).strip("'\" ")
-            
-            is_video_input = False
-            video_path = None
-            
-            if video_input_str.startswith("http"):
-                is_video_input = True
-                print(f"AI: Đang tải video từ URL: {video_input_str} ...")
-                try:
-                    video_path = download_video(video_input_str)
-                except Exception as e:
-                    print(f"AI: Lỗi khi tải video: {e}")
-                    continue
-            elif os.path.exists(video_input_str) and video_input_str.lower().endswith(('.mp4', '.mkv', '.avi', '.mov')):
-                is_video_input = True
-                video_path_orig = Path(video_input_str).resolve()
-                dest_path = config.WORK_DIR / "source.mp4"
-                
-                # Kiểm tra file gốc trước khi copy
-                if not is_valid_video(video_path_orig):
-                    print(f"AI: ❌ File video gốc có vẻ bị lỗi (moov atom not found hoặc không hợp lệ).")
-                    print(f"AI: Bạn hãy kiểm tra lại file tại: {video_path_orig}")
-                    continue
-
-                if video_path_orig != dest_path: 
-                    print(f"AI: Đang sao chép video vào bộ nhớ tạm...")
-                    # Xóa file cũ nếu có để tránh lỗi moov atom do ghi đè không hết
-                    if dest_path.exists():
-                        dest_path.unlink()
-                    shutil.copy2(video_path_orig, dest_path)
-                video_path = dest_path
-
-            if is_video_input and video_path:
-                print(f"\nAI: Đã nhận video. Đang phân tích phim và soạn kịch bản nháp...")
-                try:
-                    # Dọn dẹp temp cũ
-                    if config.TEMP_DIR.exists():
-                        shutil.rmtree(config.TEMP_DIR)
-                    config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
-                    
-                    scenes = detect_scenes(video_path)
-                    transcript = transcribe_video(video_path)
-                    draft_path = config.WORK_DIR / "script_draft.json"
-                    generate_script(transcript, scenes, draft_path, video_path=video_path)
-                    
-                    print(f"AI: Phân tích xong! Kịch bản nháp đã sẵn sàng tại {draft_path}.")
-                    print("AI: Bạn có muốn chỉnh sửa gì không, hay gõ 'render' để tôi bắt đầu dựng phim?")
-                except Exception as e:
-                    print(f"AI: ❌ Có lỗi xảy ra trong quá trình phân tích video: {e}")
-                continue
-
-            if ai_data.get("intent") == "start_render" or user_input.lower() == 'render':
+            # Kiểm tra xem người dùng có muốn render trước không
+            if ai_data.get("intent") == "start_render" or user_input.lower() in ['render', 'render now', 'bắt đầu đi']:
                 if not (config.WORK_DIR / "source.mp4").exists():
                     print("AI: Chủ nhân ơi, tôi chưa có video đầu vào để render. Hãy cho tôi link hoặc path video trước nhé!")
                 else:
                     run_render_flow()
                 continue
 
+            # Xử lý video đầu vào (chỉ chạy khi intent là process_video hoặc có đường dẫn mới)
+            video_input = ai_data.get("params", {}).get("video_path")
+            
+            # Nếu AI không trích xuất được video_path nhưng user_input có vẻ là một đường dẫn/link
+            if not video_input:
+                potential_path = user_input.strip("'\" ")
+                if potential_path.startswith("http") or (os.path.exists(potential_path) and potential_path.lower().endswith(('.mp4', '.mkv', '.avi', '.mov'))):
+                    video_input = potential_path
+
+            if video_input:
+                video_input_str = str(video_input).strip("'\" ")
+                is_video_input = False
+                video_path = None
+                
+                if video_input_str.startswith("http"):
+                    is_video_input = True
+                    print(f"AI: Đang tải video từ URL: {video_input_str} ...")
+                    try:
+                        video_path = download_video(video_input_str)
+                    except Exception as e:
+                        print(f"AI: Lỗi khi tải video: {e}")
+                        continue
+                elif os.path.exists(video_input_str) and video_input_str.lower().endswith(('.mp4', '.mkv', '.avi', '.mov')):
+                    is_video_input = True
+                    video_path_orig = Path(video_input_str).resolve()
+                    dest_path = config.WORK_DIR / "source.mp4"
+                    
+                    if not is_valid_video(video_path_orig):
+                        print(f"AI: ❌ File video gốc có vẻ bị lỗi (moov atom not found hoặc không hợp lệ).")
+                        continue
+
+                    if video_path_orig != dest_path: 
+                        print(f"AI: Đang sao chép video vào bộ nhớ tạm...")
+                        if dest_path.exists():
+                            dest_path.unlink()
+                        shutil.copy2(video_path_orig, dest_path)
+                    video_path = dest_path
+
+                if is_video_input and video_path:
+                    print(f"\nAI: Đã nhận video. Đang phân tích phim và soạn kịch bản nháp...")
+                    try:
+                        if config.TEMP_DIR.exists():
+                            shutil.rmtree(config.TEMP_DIR)
+                        config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
+                        
+                        scenes = detect_scenes(video_path)
+                        transcript = transcribe_video(video_path)
+                        draft_path = config.WORK_DIR / "script_draft.json"
+                        generate_script(transcript, scenes, draft_path, video_path=video_path)
+                        
+                        print(f"AI: Phân tích xong! Kịch bản nháp đã sẵn sàng tại {draft_path}.")
+                        print("AI: Bạn có muốn chỉnh sửa gì không, hay gõ 'render' để tôi bắt đầu dựng phim?")
+                    except Exception as e:
+                        print(f"AI: ❌ Có lỗi xảy ra trong quá trình phân tích video: {e}")
+                    continue
+
+            # Nếu không phải lệnh render hay video mới, trả lời chat bình thường
             print(f"AI: {ai_data['response']}")
             
         except KeyboardInterrupt:
@@ -140,6 +146,7 @@ def run_render_flow():
         print("AI: Lỗi: Không tìm thấy kịch bản nháp. Vui lòng cung cấp video trước.")
         return
 
+    # Nếu người dùng chưa tạo file final, tự động dùng file draft
     if not final_path.exists():
         shutil.copy(draft_path, final_path)
 
