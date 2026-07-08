@@ -29,53 +29,86 @@ def smart_agent_mode():
     print("   AI-ARV AGENT: TRỢ LÝ DỰNG PHIM THÔNG MINH")
     print("🤖"*20 + "\n")
 
-    print("AI: Chào chủ nhân! Tôi đã sẵn sàng. Bạn muốn làm video từ đâu?")
-    video_input = input("Bạn: ").strip()
+    print("AI: Chào chủ nhân! Tôi đã sẵn sàng. Bạn muốn làm video từ đâu? (Nhập link hoặc đường dẫn file)")
     
-    if video_input.startswith("http"):
-        print("AI: Đang tải video cho bạn, đợi tôi một chút...")
-        video_path = download_video(video_input)
-    else:
-        video_path = Path(video_input).resolve()
-        if not video_path.exists():
-            print(f"AI: Tôi không tìm thấy file {video_input}, bạn kiểm tra lại nhé.")
-            return
-        dest_path = config.WORK_DIR / "source.mp4"
-        if video_path != dest_path: shutil.copy(video_path, dest_path)
-        video_path = dest_path
-
-    # Chạy Prepare tự động
-    print("\nAI: Đang phân tích phim và soạn kịch bản nháp...")
-    if config.TEMP_DIR.exists(): shutil.rmtree(config.TEMP_DIR)
-    config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
-    
-    scenes = detect_scenes(video_path)
-    transcript = transcribe_video(video_path)
-    draft_path = config.WORK_DIR / "script_draft.json"
-    generate_script(transcript, scenes, draft_path, video_path=video_path)
-    
-    print(f"AI: Kịch bản đã xong tại {draft_path}. Bạn có muốn thêm nhạc nền hay yêu cầu gì đặc biệt không?")
-    
+    # Vòng lặp chính của Agent
     while True:
-        user_req = input("Bạn (nhập 'render' để bắt đầu, 'q' để thoát): ").strip()
-        if user_req.lower() == 'render':
-            break
-        if user_req.lower() == 'q':
-            return
+        user_input = input("\nBạn: ").strip()
+        if not user_input:
+            continue
             
-        # AI xử lý yêu cầu ngôn ngữ tự nhiên
-        ai_response = agent.chat(user_req)
-        print(f"AI: {ai_response}")
+        # Xử lý lệnh dừng ngay lập tức nếu người dùng nhập thủ công các từ khóa thoát
+        if user_input.lower() in ['exit', 'quit', 'q', 'dừng', 'thoát', 'stop']:
+            print("AI: Tạm biệt chủ nhân! Hẹn gặp lại.")
+            break
 
-    # Chạy Render
-    run_render_flow()
+        # AI xử lý yêu cầu
+        ai_data = agent.chat(user_input)
+        
+        # Nếu AI nhận diện ý định dừng chương trình
+        if ai_data.get("intent") == "stop_program":
+            print(f"AI: {ai_data['response']}")
+            break
+            
+        # Xử lý nhận diện video (nếu chưa có video hoặc người dùng đưa link mới)
+        # Chúng ta kiểm tra xem user_input có vẻ là link hoặc path video không
+        is_video_input = False
+        video_path = None
+        
+        if user_input.startswith("http"):
+            is_video_input = True
+            print("AI: Đang tải video cho bạn, đợi tôi một chút...")
+            try:
+                video_path = download_video(user_input)
+            except Exception as e:
+                print(f"AI: Lỗi khi tải video: {e}")
+                continue
+        elif os.path.exists(user_input) and user_input.lower().endswith(('.mp4', '.mkv', '.avi', '.mov')):
+            is_video_input = True
+            video_path = Path(user_input).resolve()
+            dest_path = config.WORK_DIR / "source.mp4"
+            if video_path != dest_path: 
+                shutil.copy(video_path, dest_path)
+            video_path = dest_path
+
+        if is_video_input and video_path:
+            # Chạy Prepare tự động khi có video mới
+            print("\nAI: Đã nhận video. Đang phân tích phim và soạn kịch bản nháp...")
+            if config.TEMP_DIR.exists(): shutil.rmtree(config.TEMP_DIR)
+            config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
+            
+            scenes = detect_scenes(video_path)
+            transcript = transcribe_video(video_path)
+            draft_path = config.WORK_DIR / "script_draft.json"
+            generate_script(transcript, scenes, draft_path, video_path=video_path)
+            
+            print(f"AI: Phân tích xong! Kịch bản nháp đã sẵn sàng tại {draft_path}.")
+            print("AI: Bạn có muốn chỉnh sửa gì không, hay gõ 'render' để tôi bắt đầu dựng phim?")
+            continue
+
+        # Nếu người dùng muốn render
+        if ai_data.get("intent") == "start_render" or user_input.lower() == 'render':
+            if not (config.WORK_DIR / "source.mp4").exists():
+                print("AI: Chủ nhân ơi, tôi chưa có video đầu vào để render. Hãy cho tôi link hoặc path video trước nhé!")
+            else:
+                run_render_flow()
+            continue
+
+        # Mặc định là trả lời chat bình thường hoặc kết quả terminal
+        print(f"AI: {ai_data['response']}")
 
 
 def run_render_flow():
     print("\n🎨 AI: Bắt đầu quá trình dựng phim (Render)...")
     final_path = config.WORK_DIR / "script_final.json"
+    draft_path = config.WORK_DIR / "script_draft.json"
+    
+    if not draft_path.exists():
+        print("AI: Lỗi: Không tìm thấy kịch bản nháp. Vui lòng cung cấp video trước.")
+        return
+
     if not final_path.exists():
-        shutil.copy(config.WORK_DIR / "script_draft.json", final_path)
+        shutil.copy(draft_path, final_path)
 
     with open(final_path, "r", encoding="utf-8") as f:
         script = json.load(f)
@@ -118,7 +151,7 @@ def main():
     elif args.command == "render":
         run_render_flow()
     else:
-        # Giữ tương thích cho các lệnh cũ
+        # Giữ tương thích cho các lệnh cũ nếu cần
         pass
 
 if __name__ == "__main__":
