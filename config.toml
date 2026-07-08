@@ -32,6 +32,12 @@ max_vision_ratio = 0.35
 provider = "edge"
 voice_vi = "vi-VN-HoaiMyNeural"
 
+[subtitle]
+# Bật/tắt việc gắn phụ đề (SRT) vào video khi render.
+# true  = có phụ đề (mặc định)
+# false = render video không có phụ đề
+enabled = false
+
 [scene_detect]
 method = "interval"
 threshold = 27.0

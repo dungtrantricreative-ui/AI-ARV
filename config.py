@@ -70,6 +70,9 @@ LLM_API_KEY = _resolve_api_key(
 TTS_PROVIDER = _get("tts_service", "provider", "edge")
 DEFAULT_VOICE = _get("tts_service", "voice_vi", "vi-VN-HoaiMyNeural")
 
+# Subtitle toggle (bật/tắt gắn phụ đề khi render)
+SUBTITLE_ENABLED = bool(_get("subtitle", "enabled", True))
+
 # Scene detect
 SCENE_DETECT_METHOD = _get("scene_detect", "method", "interval")  # "content" | "interval"
 SCENE_DETECT_THRESHOLD = float(_get("scene_detect", "threshold", 27.0))

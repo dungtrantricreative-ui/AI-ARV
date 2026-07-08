@@ -164,7 +164,8 @@ def run_render_flow():
             output_path,
             bgm_path=agent.bgm_path,
             bgm_volume=agent.bgm_volume,
-            bgm_loop=agent.bgm_loop
+            bgm_loop=agent.bgm_loop,
+            no_subs=not config.SUBTITLE_ENABLED
         )
 
         if success:

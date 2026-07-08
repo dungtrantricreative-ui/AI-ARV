@@ -1,0 +1,61 @@
+[asr_service]
+provider = "groq"
+base_url = "https://api.groq.com"
+model = "whisper-large-v3"
+api_key = ""
+
+[llm_service]
+provider = "google"
+base_url = "https://generativelanguage.googleapis.com"
+model = "gemini-2.0-flash-exp"
+api_key = ""
+
+[vision_service]
+# Model XEM ẢNH được, dùng cho những đoạn phim ít/không có thoại (director
+# tự quyết định đoạn nào cần). Để trống 3 dòng dưới để dùng chung cấu hình
+# với [llm_service] ở trên (nếu llm_service của bạn đã là model có vision,
+# vd Cerebras gemma-4-31b). Nếu llm_service là model text-only (vd Gemini
+# text, Groq Llama text-only), hãy điền riêng ở đây, ví dụ Cerebras:
+#   provider = "openai"
+#   base_url = "https://api.cerebras.ai/v1"
+#   model = "gemma-4-31b"
+provider = ""
+base_url = ""
+model = ""
+api_key = ""
+
+[director]
+# "AI truong nhom": tu quyet dinh doan nao chi can transcript (re, nhanh) va
+# doan nao can xem them khung hinh (dat hon nhung chinh xac hon voi cac
+# doan hanh dong/it thoai). Xem chi tiet cong thuc trong director.py va README.
+enabled = true
+density_threshold = 3.0
+silence_ratio_threshold = 0.6
+max_vision_block_seconds = 40.0
+max_text_block_seconds = 300.0
+frames_per_block = 3
+frame_max_width = 512
+confirm_with_llm = true
+force_vision_first_scene = true
+max_vision_ratio = 0.35
+
+[tts_service]
+provider = "edge"
+voice_vi = "vi-VN-HoaiMyNeural"
+
+[subtitle]
+# Bật/tắt việc gắn phụ đề (SRT) vào video khi render.
+# true  = có phụ đề (mặc định)
+# false = render video không có phụ đề
+enabled = true
+
+[scene_detect]
+# "content" = PySceneDetect (chính xác, chậm, cần CPU/GPU)
+# "interval" = Cắt thô bạo bằng FFmpeg (cực nhanh, không cần decode)
+method = "interval"
+threshold = 27.0
+min_duration = 1.5
+# Khoảng cách giữa các cảnh khi dùng interval slicing (giây)
+interval_seconds = 5.0
+# Định dạng xuất: "json" | "xml" | "edl"
+output_format = "json"
