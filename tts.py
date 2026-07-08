@@ -20,24 +20,6 @@ def get_audio_duration(file_path):
         return 0.0
 
 
-def build_atempo_filter(ratio):
-    # Clamp theo giới hạn cấu hình trong config.py (MIN/MAX_TIME_STRETCH_RATIO),
-    # trước đây bị hardcode 0.2-5.0 nên bỏ qua config hoàn toàn -> giọng có thể
-    # bị kéo dãn/nén quá đà nghe méo. Mặc định 0.5x-2.0x, chỉnh trong config.py nếu cần.
-    ratio = max(config.MIN_TIME_STRETCH_RATIO, min(config.MAX_TIME_STRETCH_RATIO, ratio))
-    filters = []
-    # atempo filter của ffmpeg chỉ nhận 0.5-2.0 mỗi lần, cần chia nhỏ nếu range cấu hình
-    # rộng hơn (vd nếu người dùng tự nới MAX lên 4.0 trong config.py)
-    while ratio > 2.0:
-        filters.append("atempo=2.0")
-        ratio /= 2.0
-    while ratio < 0.5:
-        filters.append("atempo=0.5")
-        ratio /= 0.5
-    filters.append(f"atempo={ratio:.2f}")
-    return ",".join(filters)
-
-
 async def _synth(text, output_path, voice=config.DEFAULT_VOICE):
     import edge_tts
     communicate = edge_tts.Communicate(text, voice)
@@ -59,7 +41,7 @@ async def safe_synth_with_retry(text, raw_path, max_retries=3):
 
 async def _process_tts_line_async(line, idx):
     raw_path = config.TEMP_DIR / f"tts_{idx}_raw.mp3"
-    final_path = config.TEMP_DIR / f"tts_{idx}_fit.mp3"
+    final_path = config.TEMP_DIR / f"tts_{idx}_native.mp3"
 
     try:
         await safe_synth_with_retry(line["text"], str(raw_path))
@@ -67,38 +49,22 @@ async def _process_tts_line_async(line, idx):
         print(f"❌ Không thể tạo giọng nói dòng {idx}: {e}")
         return None
 
-    target_duration = line["ref_end"] - line["ref_start"]
-    if target_duration <= 0:
-        print(f"⚠️ Line {idx}: ref_start/ref_end không hợp lệ ({line['ref_start']}-{line['ref_end']}), "
-              f"dùng fallback 2.0s. Kiểm tra lại script_final.json nếu audio bị cắt/lệch.")
-        target_duration = 2.0
     actual_duration = get_audio_duration(raw_path)
     if actual_duration == 0:
         actual_duration = 2.0
-
-    ratio = actual_duration / target_duration
-    print(f"🎤 Line {idx} -> raw: {actual_duration:.2f}s | target: {target_duration:.2f}s | ratio: {ratio:.2f}x")
-
-    atempo_filter = build_atempo_filter(ratio)
-    cmd = [
-        "ffmpeg", "-y", "-i", str(raw_path),
-        "-filter:a", atempo_filter,
-        str(final_path)
-    ]
-    try:
-        subprocess.run(cmd, capture_output=True, text=True, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"⚠️ atempo lỗi, dùng raw fallback (audio sẽ không khớp mốc thời gian): {e}")
-        if e.stderr:
-            print(f"   ffmpeg stderr: {e.stderr[-800:]}")
-        shutil.copy(str(raw_path), str(final_path))
+    
+    # Dùng audio native không kéo dãn
+    shutil.copy(str(raw_path), str(final_path))
+    
+    print(f"🎤 Line {idx} -> Native: {actual_duration:.2f}s")
 
     return {
         "idx": idx,
         "start": line["ref_start"],
         "end": line["ref_end"],
         "text": line["text"],
-        "audio_path": str(final_path)
+        "audio_path": str(final_path),
+        "duration": actual_duration
     }
 
 
@@ -113,5 +79,4 @@ async def process_all_tts_async(script):
 
 
 def process_all_tts(script):
-    # Chạy async một lần duy nhất, tránh lỗi event loop lồng nhau
     return asyncio.run(process_all_tts_async(script))
