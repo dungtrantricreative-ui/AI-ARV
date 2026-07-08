@@ -358,17 +358,6 @@ Output cuối cùng: `output/recap_final.mp4`.
 
 ---
 
-## Chạy trên cloud (Modal.com)
-
-`modal_app.py` là một stub cơ bản để triển khai lên [Modal.com](https://modal.com) — build sẵn image có `ffmpeg` và cài đặt từ `requirements.txt`. Hiện tại chỉ có 1 hàm `hello()` để kiểm tra image chạy được; cần tự implement thêm hàm gọi các bước `prepare`/`render` nếu muốn chạy toàn bộ pipeline trên cloud thay vì máy local.
-
-```bash
-pip install modal
-modal setup            # đăng nhập/tạo token lần đầu
-modal run modal_app.py
-```
-
----
 
 ## Xử lý sự cố (Troubleshooting)
 
