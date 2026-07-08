@@ -1,53 +1,98 @@
-# AI-ARV AGENT: TRỢ LÝ DỰNG PHIM THÔNG MINH (Universal Edition)
+# 🤖 AI-ARV AGENT: HỆ THỐNG DỰNG PHIM RECAP THÔNG MINH (V5 - FINAL)
 
-Công cụ này giúp bạn tự động hóa quy trình dựng video Recap từ phim, livestream hoặc video dài. Phiên bản này đã được tối ưu hóa để chạy trên **Windows, Linux và Google Colab**.
+**AI-ARV** là một trợ lý AI toàn diện giúp bạn tự động hóa quy trình dựng video recap từ các nguồn video dài (phim, livestream, vlog). Hệ thống tích hợp AI để phân tích cảnh quay, phiên âm, soạn kịch bản và tự động dựng phim với giọng đọc (TTS), phụ đề và nhạc nền.
 
 ---
 
-## 🚀 Hướng dẫn cài đặt nhanh
+## 🌟 Tính năng nổi bật
 
-### 1. Yêu cầu bắt buộc (Cài đặt một lần duy nhất)
-Dù bạn dùng Windows hay Linux, bạn **PHẢI** cài đặt `ffmpeg` để xử lý video:
+- **Agent Hội Thoại Thông Minh**: Giao tiếp trực tiếp với AI để điều khiển quy trình dựng phim.
+- **Xử Lý Đa Nền Tảng**: Chạy mượt mà trên **Windows, Linux và Google Colab**.
+- **Nhận Diện Video Tự Động**: Hỗ trợ link YouTube hoặc đường dẫn file cục bộ.
+- **Phân Tích Cảnh Quay (Scene Detection)**: Tự động chia nhỏ video thành các phân đoạn logic.
+- **Biên Soạn Kịch Bản AI**: Tự động viết lời bình dựa trên nội dung video và bối cảnh.
+- **Dựng Phim Tự Động (Auto-Assemble)**: Ghép nối video, giọng đọc AI, phụ đề SRT và nhạc nền chỉ với một lệnh `render`.
+- **Hỗ trợ Terminal**: AI có thể thực thi các lệnh hệ thống (như kiểm tra file, dọn dẹp thư mục) ngay trong cửa sổ chat.
 
-*   **Windows**: 
-    1. Tải ffmpeg từ [gyan.dev](https://www.gyan.dev/ffmpeg/builds/).
-    2. Giải nén và thêm thư mục `bin` vào **Environment Variables (PATH)**.
-    3. Mở Terminal gõ `ffmpeg -version` để kiểm tra.
-*   **Linux/Colab**: 
-    ```bash
-    sudo apt update && sudo apt install ffmpeg -y
-    ```
+---
+
+## 🛠 Hướng dẫn cài đặt chi tiết
+
+### 1. Cài đặt FFmpeg (Bắt buộc)
+FFmpeg là "trái tim" xử lý video của hệ thống. Bạn phải cài đặt nó trước khi chạy chương trình.
+
+#### **Trên Windows:**
+1.  Truy cập [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) và tải bản `ffmpeg-git-full.7z`.
+2.  Giải nén vào một thư mục (ví dụ: `C:\ffmpeg`).
+3.  Thêm đường dẫn đến thư mục `bin` (ví dụ: `C:\ffmpeg\bin`) vào **Environment Variables (PATH)** của hệ thống.
+4.  Mở Command Prompt và gõ `ffmpeg -version` để kiểm tra.
+
+#### **Trên Linux / Google Colab:**
+```bash
+sudo apt update && sudo apt install ffmpeg -y
+```
 
 ### 2. Cài đặt thư viện Python
-Mở Terminal tại thư mục dự án và chạy:
+Yêu cầu Python 3.9 trở lên. Chạy lệnh sau tại thư mục dự án:
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Cấu hình API
-Đổi tên file `config.toml.example` thành `config.toml` và điền API Key của bạn (Google Gemini, Groq, hoặc OpenAI).
+### 3. Cấu hình API Key
+1.  Tìm file `config.toml.example` trong thư mục gốc.
+2.  Đổi tên nó thành `config.toml`.
+3.  Mở file và điền API Key của bạn:
+    - `google`: Sử dụng Gemini (Khuyên dùng vì có bản miễn phí chất lượng cao).
+    - `groq`: Sử dụng cho tốc độ phiên âm (Whisper) cực nhanh.
+    - `openai`: Sử dụng cho GPT-4 hoặc Whisper.
 
 ---
 
-## 🤖 Cách sử dụng Agent thông minh
+## 🚀 Quy trình sử dụng (Workflow)
 
-Chỉ cần chạy lệnh sau để bắt đầu trò chuyện với AI:
+Để bắt đầu, hãy chạy lệnh:
 ```bash
 python main.py
 ```
 
-### Các tính năng "Vạn năng":
-1.  **Tự động nhận diện Video**: Bạn dán link YouTube hoặc đường dẫn file (ví dụ: `C:\Videos\film.mp4` trên Windows hoặc `/content/film.mp4` trên Colab), AI sẽ tự động tải/copy và phân tích.
-2.  **Hỗ trợ Terminal đa nền tảng**: AI tự biết bạn đang dùng Windows hay Linux để thực hiện các lệnh như kiểm tra file, dọn dẹp thư mục.
-3.  **Hội thoại liên tục**: Bạn có thể chat, yêu cầu thêm nhạc nền, chỉnh âm lượng trước khi gõ `render` để xuất video cuối cùng.
+### Bước 1: Cung cấp Video
+Khi AI chào bạn, hãy dán đường dẫn video:
+- **Link YouTube**: `https://www.youtube.com/watch?v=...`
+- **File cục bộ**: `C:\Videos\my_movie.mp4` (Windows) hoặc `/content/video.mp4` (Colab).
+
+AI sẽ tự động tải/copy và chạy bước **Prepare** (Phân tích cảnh, phiên âm và soạn kịch bản nháp).
+
+### Bước 2: Kiểm tra Kịch bản (Tùy chọn)
+Kịch bản nháp sẽ được lưu tại `workdir/script_draft.json`. Bạn có thể mở file này để chỉnh sửa nội dung lời bình nếu muốn. Sau khi sửa, hãy lưu thành `workdir/script_final.json`.
+
+### Bước 3: Ra lệnh Render
+Chỉ cần gõ vào cửa sổ chat:
+> `render` hoặc `render now` hoặc `bắt đầu đi`
+
+AI sẽ tự động làm tất cả các bước còn lại và xuất video tại thư mục `output/recap_final.mp4`.
 
 ---
 
-## 🛠 Xử lý sự cố thường gặp
+## 📂 Cấu trúc thư mục dự án
 
-*   **Lỗi `moov atom not found`**: File video bị hỏng hoặc tải chưa xong. Hãy tải lại video.
-*   **Lỗi `ffmpeg not found`**: Bạn chưa cài ffmpeg hoặc chưa thêm vào PATH (Windows).
-*   **Lỗi API**: Kiểm tra lại số dư tài khoản và API Key trong `config.toml`.
+- `main.py`: Điểm khởi đầu của chương trình, quản lý vòng lặp Agent.
+- `agent_manager.py`: Bộ não của AI, xử lý ngôn ngữ tự nhiên và lệnh terminal.
+- `config.py`: Quản lý cấu hình và đường dẫn hệ thống.
+- `scene_detect.py`: Xử lý phân tách cảnh quay.
+- `transcribe.py`: Chuyển đổi âm thanh video thành văn bản.
+- `script_gen.py`: AI soạn kịch bản dựa trên hình ảnh và văn bản.
+- `tts.py`: Tạo giọng đọc từ kịch bản.
+- `sync_assemble.py`: Ghép nối tất cả thành phần thành video hoàn chỉnh.
+- `workdir/`: Thư mục chứa các file trung gian (kịch bản, audio trích xuất).
+- `output/`: Thư mục chứa video kết quả cuối cùng.
 
 ---
-*Chúc bạn có những trải nghiệm tuyệt vời với AI-ARV!*
+
+## ⚠️ Lưu ý quan trọng
+
+- **Lỗi moov atom**: Nếu AI báo lỗi này, file video của bạn bị hỏng hoặc chưa tải xong. Hãy tải lại file.
+- **Tốc độ xử lý**: Phụ thuộc vào độ dài video và cấu hình máy tính của bạn (đặc biệt là bước Scene Detection).
+- **Quyền Terminal**: AI có thể thực thi lệnh terminal, hãy cẩn thận khi yêu cầu nó xóa file hoặc thực hiện các lệnh can thiệp hệ thống sâu.
+
+---
+*Phát triển bởi Manus AI - Chúc bạn tạo ra những video Recap ấn tượng!*

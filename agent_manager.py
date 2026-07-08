@@ -7,46 +7,54 @@ from llm_client import call_text
 
 class AIAgent:
     def __init__(self):
-        self.history = []  # Lưu lịch sử hội thoại
+        self.history = []
         self.bgm_path = None
         self.bgm_volume = 0.2
         self.bgm_loop = True
-        self.os_name = platform.system() # Nhận diện Windows, Linux, Darwin (Mac)
+        self.os_name = platform.system()
 
     def chat(self, user_input):
-        """Xử lý yêu cầu của người dùng bằng LLM để trích xuất ý định, bao gồm cả lệnh terminal."""
+        """Xử lý hội thoại tự nhiên, linh hoạt, không bị gò bó bởi từ khóa."""
         
-        # Xây dựng context từ lịch sử
         history_str = ""
-        for msg in self.history[-5:]: # Lấy 5 câu gần nhất để giữ context
+        for msg in self.history[-8:]: # Tăng context lên 8 câu để hiểu sâu hơn
             history_str += f"{msg['role']}: {msg['content']}\n"
 
+        # Prompt được thiết kế để AI tự do hơn trong cách trả lời nhưng vẫn giữ được logic xử lý
         prompt = f"""
-Bạn là trợ lý thông minh của dự án AI-ARV (Dựng phim Recap). Bạn có quyền truy cập vào Terminal để hỗ trợ chủ nhân.
+Bạn là một trợ lý AI chuyên nghiệp nhưng cực kỳ thân thiện và tâm lý, tên là AI-ARV. 
+Nhiệm vụ của bạn là đồng hành cùng chủ nhân trong việc dựng phim recap.
 Hệ điều hành hiện tại: {self.os_name}
-Lịch sử hội thoại gần đây:
+
+PHONG CÁCH TRÒ CHUYỆN:
+- Hãy nói chuyện tự nhiên như một người bạn, một cộng sự thực thụ. 
+- Không dùng các câu trả lời máy móc, lặp lại. 
+- Có thể dùng các từ ngữ đời thường, hóm hỉnh nếu phù hợp.
+- Nếu chủ nhân khen ngợi hoặc tán gẫu, hãy đáp lại một cách chân thành trước khi quay lại công việc.
+
+KHẢ NĂNG NHẬN DIỆN Ý ĐỊNH (INTENT):
+Bạn phải cực kỳ nhạy bén để nhận ra chủ nhân muốn gì, dù họ không nói thẳng tên lệnh:
+1. "process_video": Khi chủ nhân đưa link, đường dẫn file, hoặc nói kiểu "xem hộ mình file này", "đây là phim cần làm"...
+2. "start_render": Khi chủ nhân muốn ra kết quả cuối cùng, ví dụ: "lên phim thôi", "render nhé", "bắt đầu dựng đi", "xuất xưởng thôi"...
+3. "terminal_cmd": Khi chủ nhân muốn kiểm tra hệ thống, ví dụ: "xem trong thư mục có gì", "check file hộ mình"...
+4. "stop_program": Khi chủ nhân muốn nghỉ ngơi, ví dụ: "nghỉ thôi", "tạm biệt", "cút đi" (vui vẻ), "thoát"...
+5. "chat": Khi chủ nhân chỉ muốn nói chuyện phiếm, hỏi đáp kiến thức hoặc thảo luận về kịch bản.
+
+Lịch sử hội thoại:
 {history_str}
 
-Người dùng vừa nói: "{user_input}"
+Câu nói của chủ nhân: "{user_input}"
 
-Hãy phân tích ý định của người dùng và trả về kết quả dưới dạng JSON:
+Hãy trả về JSON:
 {{
-  "intent": "set_bgm" | "start_render" | "terminal_cmd" | "stop_program" | "process_video" | "chat" | "unknown",
+  "intent": "process_video" | "start_render" | "terminal_cmd" | "stop_program" | "chat",
   "params": {{
-    "cmd": "lệnh shell phù hợp với hệ điều hành {self.os_name}",
-    "video_path": "đường dẫn file video hoặc link URL",
-    "file_path": "đường dẫn file nhạc nếu có",
-    "volume": "âm lượng (0.0 đến 1.0) nếu có",
-    "loop": "true/false nếu có"
+    "cmd": "lệnh shell (nếu là terminal_cmd)",
+    "video_path": "đường dẫn file/link (nếu có)",
+    "reasoning": "Tại sao bạn chọn intent này?"
   }},
-  "response": "Câu trả lời thân thiện của bạn cho người dùng"
+  "response": "Lời phản hồi tự nhiên, đầy cảm xúc và thông minh của bạn"
 }}
-
-Lưu ý quan trọng:
-1. Nếu người dùng cung cấp đường dẫn video hoặc link video, hãy đặt intent là "process_video".
-2. Nếu người dùng muốn bắt đầu dựng phim/render, hãy đặt intent là "start_render".
-3. Nếu là lệnh máy tính, hãy dùng lệnh phù hợp với {self.os_name} (ví dụ Windows dùng 'dir', Linux dùng 'ls').
-4. Luôn trả về JSON hợp lệ.
 """
         try:
             response_text = call_text(
@@ -60,47 +68,32 @@ Lưu ý quan trọng:
             if "```json" in response_text:
                 response_text = response_text.split("```json")[1].split("```")[0]
             
-            response_text = response_text.strip()
-            data = json.loads(response_text)
+            data = json.loads(response_text.strip())
             
             self.history.append({"role": "user", "content": user_input})
             self.history.append({"role": "assistant", "content": data["response"]})
 
+            # Xử lý Terminal ngầm nếu cần
             if data["intent"] == "terminal_cmd":
                 cmd = data["params"].get("cmd")
                 if cmd:
-                    print(f"🤖 AI đang thực thi ({self.os_name}): {cmd}")
                     try:
-                        # Windows cần shell=True để chạy các lệnh như dir
                         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
-                        if result.returncode == 0:
-                            output = result.stdout if result.stdout else "Lệnh đã thực thi thành công."
-                            data["response"] += f"\n\n[Kết quả Terminal]:\n{output}"
-                        else:
-                            data["response"] += f"\n\n[Lỗi Terminal]:\n{result.stderr}"
-                    except subprocess.TimeoutExpired:
-                        data["response"] += f"\n\n[Lỗi Terminal]: Lệnh thực thi quá thời gian."
+                        output = result.stdout if result.returncode == 0 else result.stderr
+                        data["response"] += f"\n\n[AI đã kiểm tra xong]:\n{output}"
+                    except Exception as e:
+                        data["response"] += f"\n\n[Lỗi khi thực thi lệnh]: {str(e)}"
             
-            self.handle_intent(data)
             return data
         except Exception as e:
             return {
-                "intent": "error",
-                "response": f"❌ Lỗi xử lý: {str(e)}",
+                "intent": "chat",
+                "response": f"Ôi, có chút trục trặc nhỏ trong lúc suy nghĩ, nhưng tôi vẫn ở đây! (Lỗi: {str(e)})",
                 "params": {}
             }
 
-    def handle_intent(self, data):
-        if data["intent"] == "set_bgm":
-            params = data.get("params", {})
-            if params.get("file_path"): self.bgm_path = params["file_path"]
-            if params.get("volume") is not None: 
-                try: self.bgm_volume = float(params["volume"])
-                except: pass
-            if params.get("loop") is not None: self.bgm_loop = str(params["loop"]).lower() == "true"
-
     def report_error(self, error_code, detail):
-        prompt = f"Người dùng gặp lỗi {error_code}: {detail}. Hãy giải thích một cách thân thiện và đưa ra hướng khắc phục."
+        prompt = f"Hệ thống báo lỗi {error_code} ({detail}). Hãy giải thích cho chủ nhân một cách dễ hiểu, an ủi họ và chỉ cách khắc phục như một người bạn."
         return call_text(
             prompt, 
             provider=config.LLM_PROVIDER, 
