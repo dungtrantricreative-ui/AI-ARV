@@ -59,3 +59,18 @@ min_duration = 1.5
 interval_seconds = 5.0
 # Định dạng xuất: "json" | "xml" | "edl"
 output_format = "json"
+
+[render]
+# CRF càng thấp càng nét (file nặng hơn). 18-20 là mức "gần như lossless"
+# phù hợp để đăng YouTube (YouTube sẽ nén lại một lần nữa phía server).
+crf = 20
+# Preset libx264: "medium"/"slow" nén hiệu quả hơn "fast" ở cùng crf. Vì
+# giờ các đoạn video được cắt SONG SONG đa luồng nên có thể để "medium"
+# mà vẫn không lâu hơn bản cũ chạy "fast" đơn luồng.
+preset = "medium"
+# Số luồng cắt song song. 0 = tự động theo số nhân CPU máy bạn.
+max_parallel_segments = 0
+# Để trống "" để hệ thống tự dò GPU NVIDIA (NVENC) và dùng nếu có, tự
+# lùi về CPU (libx264) nếu không có. Có thể ép cứng "libx264" hoặc
+# "h264_nvenc" nếu muốn.
+force_encoder = ""

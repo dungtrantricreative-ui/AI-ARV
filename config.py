@@ -123,3 +123,19 @@ SRT_FONT_SIZE = 16
 SRT_PRIMARY_COLOR = "&H00FFFFFF"
 SRT_OUTLINE_COLOR = "&H00000000"
 SRT_OUTLINE_WIDTH = 2
+
+# --- Render / xuất video (xem sync_assemble.py) ---
+# CRF thấp hơn = chất lượng cao hơn (file nặng hơn). 18-20 gần như lossless
+# với mắt thường, phù hợp để đăng YouTube (YouTube sẽ nén lại lần nữa).
+RENDER_CRF = int(_get("render", "crf", 20))
+# Preset cho libx264 (bỏ qua nếu dùng GPU/NVENC): chậm hơn = nén hiệu quả
+# hơn (chất lượng/dung lượng tốt hơn ở cùng crf), nhưng lâu hơn. Vì giờ các
+# đoạn được cắt SONG SONG (đa luồng), có thể dùng preset chất lượng cao hơn
+# ("medium"/"slow") mà vẫn không chậm hơn bản cũ chạy đơn luồng "fast".
+RENDER_PRESET = _get("render", "preset", "medium")
+# Số luồng cắt song song ở giai đoạn 1. 0 = tự động (bằng số nhân CPU, tối
+# đa 32). Giảm số này nếu máy yếu/ít RAM và bị treo khi render.
+RENDER_MAX_WORKERS = int(_get("render", "max_parallel_segments", 0))
+# Ép cứng encoder thay vì tự dò GPU: "" (tự dò NVENC, fallback libx264),
+# "libx264" (chỉ CPU), hoặc "h264_nvenc" (chỉ GPU NVIDIA).
+RENDER_FORCE_ENCODER = _get("render", "force_encoder", "")
