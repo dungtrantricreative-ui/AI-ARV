@@ -46,6 +46,7 @@ import concurrent.futures
 from pathlib import Path
 
 import config
+import logutil
 
 
 # ============================================================
@@ -63,7 +64,7 @@ def _pick_encoder() -> str:
     forced = getattr(config, "RENDER_FORCE_ENCODER", "") or ""
     if forced:
         _ENCODER_CACHE = forced
-        print(f"[render] Dùng encoder ép cứng theo config: {forced}")
+        logutil.stage(f"[render] Dùng encoder ép cứng theo config: {forced}")
         return _ENCODER_CACHE
 
     try:
@@ -74,7 +75,7 @@ def _pick_encoder() -> str:
         r = subprocess.run(test_cmd, capture_output=True, text=True, timeout=15)
         if r.returncode == 0:
             _ENCODER_CACHE = "h264_nvenc"
-            print("[render] Phát hiện GPU NVIDIA (NVENC) -> dùng để tăng tốc encode.")
+            logutil.ok("[render] Phát hiện GPU NVIDIA (NVENC) -> dùng để tăng tốc encode.")
             return _ENCODER_CACHE
     except Exception:
         pass
@@ -237,7 +238,7 @@ def _cut_all_segments_parallel(original_video, tts_segments, seg_dir, encoder, c
         out_path = seg_dir / f"seg_{idx:05d}.mp4"
         jobs.append((idx, original_video, seg["start"], seg["duration"], out_path, encoder, crf, preset, fps))
 
-    print(f"[render] Giai đoạn 1/3: Cắt {n} đoạn video song song ({max_workers} luồng, encoder={encoder})...")
+    logutil.stage(f"[render] Giai đoạn 1/3: Cắt {n} đoạn video song song ({max_workers} luồng, encoder={encoder})...")
     t0 = time.time()
     failed = []
     done_count = 0
@@ -251,7 +252,7 @@ def _cut_all_segments_parallel(original_video, tts_segments, seg_dir, encoder, c
                 failed.append((idx, err))
             if done_count % step == 0 or done_count == n:
                 pct = done_count / n * 100
-                print(f"[render] Giai đoạn 1/3: {done_count}/{n} đoạn ({pct:.0f}%) | đã chạy {time.time() - t0:.0f}s")
+                logutil.stage(f"[render] Giai đoạn 1/3: {done_count}/{n} đoạn ({pct:.0f}%) | đã chạy {time.time() - t0:.0f}s")
 
     with open(log_path, "a", encoding="utf-8") as logf:
         logf.write(f"\n===== Giai đoạn 1 (cắt song song): {n - len(failed)}/{n} thành công trong {time.time() - t0:.1f}s =====\n")
@@ -259,7 +260,7 @@ def _cut_all_segments_parallel(original_video, tts_segments, seg_dir, encoder, c
             logf.write(f"-- Đoạn {idx} lỗi lần 1:\n{err}\n")
 
     if failed:
-        print(f"⚠️ [render] {len(failed)}/{n} đoạn cắt lỗi ở lần 1, đang thử cắt lại tuần tự...")
+        logutil.warn(f"⚠️ [render] {len(failed)}/{n} đoạn cắt lỗi ở lần 1, đang thử cắt lại tuần tự...")
         still_failed = []
         for idx, _ in failed:
             job = jobs[idx]
@@ -270,7 +271,7 @@ def _cut_all_segments_parallel(original_video, tts_segments, seg_dir, encoder, c
             with open(log_path, "a", encoding="utf-8") as logf:
                 for idx, err in still_failed:
                     logf.write(f"-- Đoạn {idx} vẫn lỗi sau khi thử lại, chèn khung hình đen thay thế:\n{err}\n")
-            print(f"⚠️ [render] {len(still_failed)} đoạn vẫn lỗi -> chèn khung hình đen đúng thời lượng "
+            logutil.warn(f"⚠️ [render] {len(still_failed)} đoạn vẫn lỗi -> chèn khung hình đen đúng thời lượng "
                   f"để giữ đồng bộ audio/hình (xem chi tiết tại {log_path}).")
             for idx, _ in still_failed:
                 seg = tts_segments[idx]
@@ -287,7 +288,7 @@ def _cut_all_segments_parallel(original_video, tts_segments, seg_dir, encoder, c
 # ============================================================
 
 def _concat_segments(seg_paths, seg_dir, log_path) -> Path:
-    print(f"[render] Giai đoạn 2/3: Ghép {len(seg_paths)} đoạn video...")
+    logutil.stage(f"[render] Giai đoạn 2/3: Ghép {len(seg_paths)} đoạn video...")
     concat_list = seg_dir / "concat_list.txt"
     with open(concat_list, "w", encoding="utf-8") as f:
         for p in seg_paths:
@@ -300,7 +301,7 @@ def _concat_segments(seg_paths, seg_dir, log_path) -> Path:
         if r.returncode != 0:
             logf.write(r.stderr[-2000:] + "\n")
     if r.returncode != 0 or not v_concat_path.exists():
-        print(f"❌ [render] Ghép video lỗi. Chi tiết: {r.stderr[-500:]}")
+        logutil.err(f"❌ [render] Ghép video lỗi. Chi tiết: {r.stderr[-500:]}")
         return None
     return v_concat_path
 
@@ -371,7 +372,7 @@ def _final_mux(v_concat_path, tts_segments, srt_path, output_video_path, bgm_pat
 
     ok = _run_ffmpeg_logged(cmd, total_duration, stage_label, log_path)
     if not ok:
-        print(f"❌ LỖI HỆ THỐNG (Mã: FF-ERR-500). Xem chi tiết đầy đủ tại {log_path}")
+        logutil.err(f"❌ LỖI HỆ THỐNG (Mã: FF-ERR-500). Xem chi tiết đầy đủ tại {log_path}")
     return ok
 
 
@@ -382,10 +383,10 @@ def _final_mux(v_concat_path, tts_segments, srt_path, output_video_path, bgm_pat
 def assemble_video_and_audio(original_video, srt_path, tts_segments, output_video_path,
                               bgm_path=None, bgm_volume=0.2, bgm_loop=True, no_subs=False):
     if not os.path.exists(original_video):
-        print(f"❌ Lỗi: Không tìm thấy video gốc tại {original_video}")
+        logutil.err(f"❌ Lỗi: Không tìm thấy video gốc tại {original_video}")
         return False
     if not tts_segments:
-        print("❌ Lỗi: Không có đoạn audio nào để dựng phim.")
+        logutil.err("❌ Lỗi: Không có đoạn audio nào để dựng phim.")
         return False
 
     update_srt_with_native_duration(srt_path, tts_segments)
@@ -395,9 +396,11 @@ def assemble_video_and_audio(original_video, srt_path, tts_segments, output_vide
 
     encoder = _pick_encoder()
     if encoder == "libx264":
-        print("⚠️ [render] Không tìm thấy GPU NVIDIA (NVENC) -> dùng CPU (libx264), sẽ CHẬM hơn nhiều "
-              "cho các phim dài. Nếu đang chạy trên Google Colab: Runtime -> Change runtime type -> "
-              "Hardware accelerator = GPU (T4), rồi chạy lại render để tự động dùng GPU.")
+        logutil.warn("⚠️ [render] Không tìm thấy GPU NVIDIA (NVENC) khả dụng -> dùng CPU (libx264), sẽ CHẬM hơn "
+              "nhiều cho các phim dài. Nếu máy/dịch vụ bạn đang chạy CÓ GPU NVIDIA nhưng chưa được nhận diện: "
+              "kiểm tra đã bật/chọn GPU trong cấu hình môi trường chưa (tuỳ nền tảng: card vật lý cần cài driver "
+              "+ CUDA, máy ảo/notebook cloud thường có mục chọn loại phần cứng tăng tốc), rồi chạy lại render. "
+              "Không có GPU cũng chạy được bình thường, chỉ là lâu hơn.")
     crf = getattr(config, "RENDER_CRF", 20)
     preset = getattr(config, "RENDER_PRESET", "medium")
     fps = _get_fps(original_video)
@@ -406,7 +409,7 @@ def assemble_video_and_audio(original_video, srt_path, tts_segments, output_vide
     total_duration = sum(seg["duration"] for seg in tts_segments)
     n = len(tts_segments)
     t_start = time.time()
-    print(f"🎬 [render] Bắt đầu dựng phim: {n} đoạn thoại, tổng thời lượng dự kiến ~{total_duration / 60:.1f} phút, "
+    logutil.ok(f"🎬 [render] Bắt đầu dựng phim: {n} đoạn thoại, tổng thời lượng dự kiến ~{total_duration / 60:.1f} phút, "
           f"encoder={encoder}, crf={crf}, preset={preset}. Log chi tiết: {log_path}")
 
     seg_dir = config.TEMP_DIR / "render_segments"
@@ -419,7 +422,7 @@ def assemble_video_and_audio(original_video, srt_path, tts_segments, output_vide
             original_video, tts_segments, seg_dir, encoder, crf, preset, fps, width, height, log_path,
         )
         if not seg_paths:
-            print("❌ [render] Không cắt được đoạn video nào, dừng render.")
+            logutil.err("❌ [render] Không cắt được đoạn video nào, dừng render.")
             return False
 
         v_concat_path = _concat_segments(seg_paths, seg_dir, log_path)
@@ -434,7 +437,7 @@ def assemble_video_and_audio(original_video, srt_path, tts_segments, output_vide
         shutil.rmtree(seg_dir, ignore_errors=True)
 
     if ok:
-        print(f"✅ [render] Hoàn tất trong {time.time() - t_start:.0f}s. Log chi tiết tại: {log_path}")
+        logutil.ok(f"✅ [render] Hoàn tất trong {time.time() - t_start:.0f}s. Log chi tiết tại: {log_path}")
     return ok
 
 

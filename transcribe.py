@@ -5,6 +5,7 @@ import tempfile
 import subprocess
 from pathlib import Path
 import config
+import logutil
 
 # Độ dài mỗi đoạn audio khi cắt nhỏ (giây). 10 phút là mốc an toàn cho hầu hết
 # API ASR (Groq/OpenAI) tránh bị timeout hoặc từ chối vì file quá lớn.
@@ -37,17 +38,17 @@ def _extract_audio(video_path: Path) -> Path:
     cache_key = f"{video_path.stem}_{stat.st_size}_{int(stat.st_mtime)}"
     audio_path = config.TEMP_DIR / f"audio_{cache_key}.mp3"
     if audio_path.exists():
-        print(f"[transcribe] Dùng audio cache có sẵn -> {audio_path}")
+        logutil.stage(f"[transcribe] Dùng audio cache có sẵn -> {audio_path}")
         return audio_path
     cmd = [
         "ffmpeg", "-y", "-i", str(video_path),
         "-vn", "-ar", "16000", "-ac", "1", "-b:a", "32k",
         str(audio_path)
     ]
-    print(f"[transcribe] Trích audio -> {audio_path}")
+    logutil.stage(f"[transcribe] Trích audio -> {audio_path}")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"❌ ffmpeg trích audio thất bại:\n{result.stderr[-2000:]}")
+        logutil.err(f"❌ ffmpeg trích audio thất bại:\n{result.stderr[-2000:]}")
         raise subprocess.CalledProcessError(result.returncode, cmd, output=result.stdout, stderr=result.stderr)
     return audio_path
 
@@ -77,10 +78,10 @@ def _split_audio_chunks(audio_path: Path, chunk_dir: Path, chunk_sec: int = CHUN
         "-c", "copy", "-reset_timestamps", "1",
         pattern,
     ]
-    print(f"[transcribe] Audio dài {duration:.0f}s > {chunk_sec}s -> cắt thành từng đoạn {chunk_sec}s...")
+    logutil.stage(f"[transcribe] Audio dài {duration:.0f}s > {chunk_sec}s -> cắt thành từng đoạn {chunk_sec}s...")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"❌ ffmpeg cắt audio thất bại:\n{result.stderr[-2000:]}")
+        logutil.err(f"❌ ffmpeg cắt audio thất bại:\n{result.stderr[-2000:]}")
         raise subprocess.CalledProcessError(result.returncode, cmd, output=result.stdout, stderr=result.stderr)
 
     chunk_paths = sorted(chunk_dir.glob("chunk_*.mp3"))
@@ -92,7 +93,7 @@ def _split_audio_chunks(audio_path: Path, chunk_dir: Path, chunk_sec: int = CHUN
     for p in chunk_paths:
         chunks.append({"path": p, "offset": offset})
         offset += _get_audio_duration(p)
-    print(f"[transcribe] Đã cắt thành {len(chunks)} đoạn.")
+    logutil.stage(f"[transcribe] Đã cắt thành {len(chunks)} đoạn.")
     return chunks
 
 
@@ -115,16 +116,16 @@ def call_api_with_retry(api_func, *args, max_retries=4, base_wait=5, label="asr"
             if is_transient and attempt < max_retries - 1:
                 wait_time = base_wait * (attempt + 1)
                 reason = "Timeout" if is_timeout else ("Rate limit/Quota" if is_rate_limit else "Server quá tải")
-                print(f"⚠️ [{label}] {reason}. Chờ {wait_time}s rồi thử lại ({attempt + 1}/{max_retries})...")
+                logutil.warn(f"⚠️ [{label}] {reason}. Chờ {wait_time}s rồi thử lại ({attempt + 1}/{max_retries})...")
                 time.sleep(wait_time)
             else:
-                print(f"❌ [{label}] Lỗi API nghiêm trọng: {e}")
+                logutil.err(f"❌ [{label}] Lỗi API nghiêm trọng: {e}")
                 raise
     raise RuntimeError(f"[{label}] API từ chối sau {max_retries} lần thử: {last_err}")
 
 
 def transcribe_video(video_path: Path) -> list[dict]:
-    print(f"[transcribe] Đang phiên âm: {video_path}")
+    logutil.stage(f"[transcribe] Đang phiên âm: {video_path}")
 
     # Trích audio trước khi gửi API (tránh lỗi file quá lớn / không đúng format)
     audio_path = _extract_audio(video_path)
@@ -148,7 +149,7 @@ def transcribe_video(video_path: Path) -> list[dict]:
 
         for i, chunk in enumerate(chunks, 1):
             chunk_path, offset = chunk["path"], chunk["offset"]
-            print(f"[transcribe] Đang gửi đoạn {i}/{n_chunks} (offset +{offset:.1f}s) -> {chunk_path.name}")
+            logutil.stage(f"[transcribe] Đang gửi đoạn {i}/{n_chunks} (offset +{offset:.1f}s) -> {chunk_path.name}")
             chunk_segments = transcribe_fn(chunk_path, label=f"asr-chunk-{i}/{n_chunks}")
             # Đồng bộ thời gian: cộng dồn offset để khớp với video gốc.
             for seg in chunk_segments:
@@ -161,7 +162,7 @@ def transcribe_video(video_path: Path) -> list[dict]:
     out = config.WORK_DIR / "transcript.json"
     with open(out, "w", encoding="utf-8") as f:
         json.dump(segments, f, ensure_ascii=False, indent=2)
-    print(f"[transcribe] Xong: {len(segments)} đoạn -> {out}")
+    logutil.stage(f"[transcribe] Xong: {len(segments)} đoạn -> {out}")
     return segments
 
 

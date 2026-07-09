@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 
 import config
+import logutil
 
 
 def extract_frames(video_path: Path, start: float, end: float, count: int, out_dir: Path, tag: str) -> list[Path]:
@@ -33,7 +34,7 @@ def extract_frames(video_path: Path, start: float, end: float, count: int, out_d
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0 or not out_path.exists():
-            print(f"⚠️ [frame_extract] Trích khung hình lỗi tại {ts:.1f}s: {result.stderr[-300:].strip()}")
+            logutil.warn(f"⚠️ [frame_extract] Trích khung hình lỗi tại {ts:.1f}s: {result.stderr[-300:].strip()}")
             continue
         paths.append(out_path)
     return paths

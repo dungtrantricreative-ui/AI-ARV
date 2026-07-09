@@ -10,6 +10,7 @@ except ImportError:
     SCENEDETECT_AVAILABLE = False
 
 import config
+import logutil
 
 
 def _get_video_duration(video_path: Path) -> float:
@@ -25,10 +26,10 @@ def _get_video_duration(video_path: Path) -> float:
         return float(out)
     except subprocess.CalledProcessError as e:
         stderr = e.stderr.strip() if e.stderr else "Không có thông tin lỗi từ stderr."
-        print(f"❌ Lỗi ffprobe khi đọc duration: {stderr}")
+        logutil.err(f"❌ Lỗi ffprobe khi đọc duration: {stderr}")
         raise RuntimeError(f"Không thể đọc thông tin video. Hãy đảm bảo file tồn tại và là định dạng video hợp lệ.\nChi tiết: {stderr}")
     except Exception as e:
-        print(f"❌ Lỗi không xác định khi lấy duration: {e}")
+        logutil.err(f"❌ Lỗi không xác định khi lấy duration: {e}")
         raise
 
 
@@ -99,18 +100,18 @@ def _export_scenes(scenes: list[dict], out_path: Path, fmt: str):
 
 
 def detect_scenes(video_path: Path) -> list[dict]:
-    print(f"[scene_detect] Đang phân tích: {video_path}")
+    logutil.stage(f"[scene_detect] Đang phân tích: {video_path}")
     method = config.SCENE_DETECT_METHOD.lower()
 
     if method == "interval":
-        print(f"[scene_detect] Mode: Interval Slicing ({config.SCENE_INTERVAL_SECONDS}s) — FFmpeg, không decode video")
+        logutil.stage(f"[scene_detect] Mode: Interval Slicing ({config.SCENE_INTERVAL_SECONDS}s) — FFmpeg, không decode video")
         scenes = _build_interval_scenes(video_path, config.SCENE_INTERVAL_SECONDS)
     else:
-        print(f"[scene_detect] Mode: Content Detection (PySceneDetect)")
+        logutil.stage(f"[scene_detect] Mode: Content Detection (PySceneDetect)")
         try:
             scenes = _build_content_scenes(video_path)
         except Exception as e:
-            print(f"⚠️ PySceneDetect lỗi ({e}), fallback về Interval Slicing "
+            logutil.warn(f"⚠️ PySceneDetect lỗi ({e}), fallback về Interval Slicing "
                   f"({config.SCENE_INTERVAL_SECONDS}s/cảnh)")
             scenes = _build_interval_scenes(video_path, config.SCENE_INTERVAL_SECONDS)
 
@@ -118,5 +119,5 @@ def detect_scenes(video_path: Path) -> list[dict]:
     ext = {"xml": ".xml", "edl": ".edl"}.get(fmt, ".json")
     out_path = config.WORK_DIR / f"scenes{ext}"
     _export_scenes(scenes, out_path, fmt)
-    print(f"[scene_detect] Tìm thấy {len(scenes)} cảnh -> {out_path}")
+    logutil.stage(f"[scene_detect] Tìm thấy {len(scenes)} cảnh -> {out_path}")
     return scenes

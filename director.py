@@ -70,6 +70,7 @@ import json
 import re
 
 import config
+import logutil
 import llm_client
 
 
@@ -161,10 +162,10 @@ def plan_scenes(scenes, transcript):
         ratio = vision_total / total_duration if total_duration > 0 else 0.0
         if ratio <= config.DIRECTOR_MAX_VISION_RATIO or attempt == 2:
             if ratio > config.DIRECTOR_MAX_VISION_RATIO:
-                print(f"⚠️ [director] Vẫn còn {ratio:.0%} thời lượng đề xuất vision sau khi nới ngưỡng "
+                logutil.warn(f"⚠️ [director] Vẫn còn {ratio:.0%} thời lượng đề xuất vision sau khi nới ngưỡng "
                       f"— chấp nhận (đã thử tối đa 3 lần).")
             break
-        print(f"⚠️ [director] Tỉ lệ vision {ratio:.0%} > giới hạn {config.DIRECTOR_MAX_VISION_RATIO:.0%}. "
+        logutil.warn(f"⚠️ [director] Tỉ lệ vision {ratio:.0%} > giới hạn {config.DIRECTOR_MAX_VISION_RATIO:.0%}. "
               f"Nới lỏng ngưỡng (lần {attempt + 1}) và phân loại lại...")
         density_threshold *= 0.5
         silence_threshold = min(silence_threshold + 0.15, 0.95)
@@ -177,7 +178,7 @@ def plan_scenes(scenes, transcript):
     n_vision = sum(1 for b in blocks if b["mode"] == "vision")
     n_text = sum(1 for b in blocks if b["mode"] == "text")
     vision_total = sum(b["end"] - b["start"] for b in blocks if b["mode"] == "vision")
-    print(f"[director] Kế hoạch cuối: {len(blocks)} block ({n_text} text-only, {n_vision} vision) "
+    logutil.stage(f"[director] Kế hoạch cuối: {len(blocks)} block ({n_text} text-only, {n_vision} vision) "
           f"— {vision_total:.0f}s/{total_duration:.0f}s (~{vision_total / total_duration:.0%}) cần xem hình.")
     return blocks
 
@@ -225,7 +226,7 @@ Không giải thích gì thêm, chỉ trả JSON thuần."""
         data = json.loads(match.group(0)) if match else {}
         keep = set(int(i) for i in data.get("needs_vision", []))
     except Exception as e:
-        print(f"⚠️ [director] Bước xác nhận thất bại ({e}) — giữ nguyên phân loại rule-based.")
+        logutil.warn(f"⚠️ [director] Bước xác nhận thất bại ({e}) — giữ nguyên phân loại rule-based.")
         return blocks
 
     dropped = 0
@@ -234,6 +235,6 @@ Không giải thích gì thêm, chỉ trả JSON thuần."""
             b["mode"] = "text"
             dropped += 1
     if dropped:
-        print(f"[director] Bước xác nhận: bỏ {dropped}/{len(candidates)} block khỏi diện cần xem hình "
+        logutil.stage(f"[director] Bước xác nhận: bỏ {dropped}/{len(candidates)} block khỏi diện cần xem hình "
               f"(thoại ít nhưng không quan trọng với cốt truyện).")
     return _remerge_blocks(blocks)

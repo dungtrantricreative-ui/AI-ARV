@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 import config
+import logutil
 from download import download_video
 from scene_detect import detect_scenes
 from transcribe import transcribe_video
@@ -20,7 +21,7 @@ from agent_manager import agent
 def check_dependencies():
     for binary in ["ffmpeg", "ffprobe"]:
         if not shutil.which(binary):
-            print(f"❌ LỖI: Không tìm thấy '{binary}'!")
+            logutil.err(f"❌ LỖI: Không tìm thấy '{binary}'!")
             sys.exit(1)
 
 

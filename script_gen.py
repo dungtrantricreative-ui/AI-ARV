@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 
 import config
+import logutil
 import director
 import frame_extract
 import llm_client
@@ -120,7 +121,7 @@ def _trim_script_to_target(script, target_minutes: float, tolerance: float = 1.1
         to_drop.add(i)
 
     kept = [l for i, l in enumerate(script) if i not in to_drop]
-    print(f"[script_gen] Biên tập toàn cục: kịch bản ước tính ~{ (total + sum(est_duration(script[i]) for i in to_drop)) / 60:.1f} phút "
+    logutil.stage(f"[script_gen] Biên tập toàn cục: kịch bản ước tính ~{ (total + sum(est_duration(script[i]) for i in to_drop)) / 60:.1f} phút "
           f"> mục tiêu {target_minutes:.0f} phút -> cắt {len(to_drop)}/{len(script)} dòng ít quan trọng nhất "
           f"(giữ nguyên mọi dòng importance>=4). Còn lại ước tính ~{total / 60:.1f} phút.")
     return kept
@@ -145,7 +146,7 @@ def generate_script(transcript, scenes, out_path: Path, video_path: Path = None)
 
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(script, f, ensure_ascii=False, indent=2)
-    print(f"[script_gen] Xong: {len(script)} dòng thoại -> {out_path}")
+    logutil.stage(f"[script_gen] Xong: {len(script)} dòng thoại -> {out_path}")
     return script
 
 
@@ -170,14 +171,14 @@ def _generate_script_directed(transcript, scenes, video_path: Path):
     n_blocks = len(blocks)
     for i, block in enumerate(blocks, 1):
         tag = f"{block['start']:.1f}"
-        print(f"[script_gen] Block {i}/{n_blocks}: {block['start']:.1f}s-{block['end']:.1f}s ({block['mode']})")
+        logutil.stage(f"[script_gen] Block {i}/{n_blocks}: {block['start']:.1f}s-{block['end']:.1f}s ({block['mode']})")
         try:
             if block["mode"] == "vision" and video_path is not None:
                 lines = _generate_vision_block(block, transcript, video_path, frames_dir, tag, story_so_far)
             else:
                 lines = _generate_text_block(block, transcript, story_so_far)
         except Exception as e:
-            print(f"⚠️ [script_gen] Lỗi ở block {block['start']:.1f}-{block['end']:.1f}s ({e}). "
+            logutil.warn(f"⚠️ [script_gen] Lỗi ở block {block['start']:.1f}-{block['end']:.1f}s ({e}). "
                   f"Bỏ qua block này (thoại/hình các block khác không bị ảnh hưởng).")
             lines = []
         all_lines.extend(lines)
@@ -193,7 +194,7 @@ def _generate_script_directed(transcript, scenes, video_path: Path):
         shutil.rmtree(frames_dir, ignore_errors=True)
 
     if not all_lines:
-        print("⚠️ [script_gen] Không sinh được dòng thoại nào theo director. Dùng lại cách cũ (1 lần gọi toàn bộ transcript).")
+        logutil.warn("⚠️ [script_gen] Không sinh được dòng thoại nào theo director. Dùng lại cách cũ (1 lần gọi toàn bộ transcript).")
         return _generate_script_legacy(transcript, scenes)
 
     return all_lines
@@ -252,7 +253,7 @@ def _generate_vision_block(block, transcript, video_path, frames_dir, tag, story
         video_path, block["start"], block["end"], config.DIRECTOR_FRAMES_PER_BLOCK, frames_dir, tag,
     )
     if not frames:
-        print(f"⚠️ [script_gen] Không trích được khung hình nào cho block {tag}s -> lùi về text-only.")
+        logutil.warn(f"⚠️ [script_gen] Không trích được khung hình nào cho block {tag}s -> lùi về text-only.")
         return _generate_text_block(block, transcript, story_so_far)
 
     t_block = _format_transcript_range(transcript, block["start"], block["end"])
@@ -313,7 +314,7 @@ def _format_transcript_range(transcript, start, end, max_characters=4000):
 # ============================================================
 
 def _polish_script(script):
-    print(f"[script_gen] Biên tập lại kịch bản cho mạch lạc hơn ({len(script)} dòng)...")
+    logutil.stage(f"[script_gen] Biên tập lại kịch bản cho mạch lạc hơn ({len(script)} dòng)...")
     polished = []
     story_so_far = ""
     for start in range(0, len(script), POLISH_CHUNK_SIZE):
@@ -321,7 +322,7 @@ def _polish_script(script):
         try:
             new_texts = _polish_chunk(chunk, story_so_far)
         except Exception as e:
-            print(f"⚠️ [script_gen] Bước biên tập lỗi ở cụm dòng {start}-{start + len(chunk)} ({e}). "
+            logutil.warn(f"⚠️ [script_gen] Bước biên tập lỗi ở cụm dòng {start}-{start + len(chunk)} ({e}). "
                   f"Giữ nguyên cụm gốc.")
             new_texts = None
 
@@ -333,7 +334,7 @@ def _polish_script(script):
                 polished.append(line)
         else:
             if new_texts is not None:
-                print(f"⚠️ [script_gen] Bước biên tập trả sai số dòng ({len(new_texts)} thay vì {len(chunk)}) "
+                logutil.warn(f"⚠️ [script_gen] Bước biên tập trả sai số dòng ({len(new_texts)} thay vì {len(chunk)}) "
                       f"ở cụm {start}-{start + len(chunk)}. Giữ nguyên cụm gốc.")
             polished.extend(chunk)
 
@@ -384,7 +385,7 @@ def _format_transcript(transcript, max_characters=20000):
     for entry in transcript:
         text_block += f"[{entry.get('start', 0.0):.1f}-{entry.get('end', 0.0):.1f}]: {entry.get('text', '')}\n"
     if len(text_block) > max_characters:
-        print(f"⚠️ Transcript quá dài ({len(text_block)} ký tự). Rút gọn thông minh...")
+        logutil.warn(f"⚠️ Transcript quá dài ({len(text_block)} ký tự). Rút gọn thông minh...")
         half = max_characters // 2
         text_block = text_block[:half] + "\n...[LƯỢC BỎ ĐỂ TRÁNH TRÀN CONTEXT]...\n" + text_block[-half:]
     return text_block

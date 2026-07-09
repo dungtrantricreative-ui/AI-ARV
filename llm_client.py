@@ -11,6 +11,7 @@ import json
 import mimetypes
 import re
 import time
+import logutil
 
 
 def extract_json(text: str):
@@ -63,7 +64,7 @@ def call_with_retry(fn, max_retries=3, base_wait=5, label="llm"):
             transient = any(k in msg for k in ("429", "rate limit", "quota", "overloaded", "503", "timeout"))
             if transient and attempt < max_retries - 1:
                 wait = base_wait * (attempt + 1)
-                print(f"⚠️ [{label}] Lỗi tạm thời, chờ {wait}s rồi thử lại ({attempt + 1}/{max_retries})...")
+                logutil.warn(f"⚠️ [{label}] Lỗi tạm thời, chờ {wait}s rồi thử lại ({attempt + 1}/{max_retries})...")
                 time.sleep(wait)
             else:
                 raise
