@@ -394,6 +394,10 @@ def assemble_video_and_audio(original_video, srt_path, tts_segments, output_vide
     log_path.write_text("", encoding="utf-8")  # log mới mỗi lần render
 
     encoder = _pick_encoder()
+    if encoder == "libx264":
+        print("⚠️ [render] Không tìm thấy GPU NVIDIA (NVENC) -> dùng CPU (libx264), sẽ CHẬM hơn nhiều "
+              "cho các phim dài. Nếu đang chạy trên Google Colab: Runtime -> Change runtime type -> "
+              "Hardware accelerator = GPU (T4), rồi chạy lại render để tự động dùng GPU.")
     crf = getattr(config, "RENDER_CRF", 20)
     preset = getattr(config, "RENDER_PRESET", "medium")
     fps = _get_fps(original_video)

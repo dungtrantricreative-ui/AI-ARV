@@ -22,6 +22,12 @@ STORY_CONTEXT_MAX_CHARS = 900
 # tránh vượt giới hạn token / để lỗi 1 cụm không làm hỏng toàn bộ kịch bản.
 POLISH_CHUNK_SIZE = 14
 
+# Tốc độ nói trung bình khi đọc lời bình tiếng Việt (từ/giây). Dùng để quy
+# đổi "ngân sách thời lượng" của 1 block sang "ngân sách số từ" trong prompt,
+# giúp LLM tự ước lượng nên viết dài bao nhiêu thay vì kể lể hết mọi chi tiết.
+# Giá trị này ước tính từ tốc độ đọc tự nhiên (~150 từ/phút) + rate TTS.
+WORDS_PER_SECOND = 2.5
+
 
 # ============================================================
 #  "KIM CHỈ NAM" biên kịch — phần quan trọng nhất của cả file.
@@ -54,7 +60,70 @@ BẮT BUỘC mỗi câu/đoạn lời bình phải ngầm trả lời được 3
 Chỉ tập trung vào 6 yếu tố: NHÂN VẬT — MỤC TIÊU — MÂU THUẪN — HÀNH ĐỘNG — HẬU QUẢ — BƯỚC NGOẶT.
 Văn phong: kể chuyện tự nhiên, mạch lạc, hấp dẫn, như đang kể lại cho một người bạn nghe — không phải
 liệt kê hình ảnh, không phải phụ đề dịch thoại.
+
+CHẤM ĐIỂM ĐỘ QUAN TRỌNG: mỗi dòng lời bình bạn viết ra PHẢI kèm một trường "importance" từ 1 đến 5,
+do CHÍNH BẠN đánh giá dựa trên nội dung — không có công thức cố định, hãy dùng phán đoán biên kịch:
+  5 = bước ngoặt cốt truyện, twist, quyết định thay đổi số phận nhân vật — thiếu câu này khán giả
+      SẼ không hiểu mạch phim.
+  4 = thông tin quan trọng để hiểu động cơ/nhân vật/mâu thuẫn, nhưng không phải bước ngoặt.
+  3 = bổ trợ hữu ích (bối cảnh, cảm xúc) nhưng có thể suy ra được nếu thiếu.
+  2 = chi tiết phụ, có cũng hay nhưng cắt cũng không ảnh hưởng mạch hiểu.
+  1 = gần như chỉ để chuyển cảnh/lấp chỗ trống, có thể cắt an toàn.
+Điểm này sẽ được dùng ở bước biên tập CUỐI CÙNG để cắt bớt video nếu quá dài — bạn KHÔNG cần tự giới
+hạn độ dài ở bước này, cứ viết đủ những gì cần để câu chuyện mạch lạc, nhưng hãy chấm điểm trung thực
+(đừng chấm mọi câu đều 5) để bước biên tập sau cắt đúng chỗ ít quan trọng nhất, không cắt nhầm cao trào.
 """
+
+
+def _selectivity_reminder() -> str:
+    """Nhắc nhở NHẸ, không ép số từ/giây cụ thể (khác bản cũ dùng ngân sách cứng
+    theo % thời lượng block — cách đó dễ cắt cụt những đoạn thực sự quan trọng
+    chỉ vì chúng rơi vào 1 block dài). Việc "nén" video giờ được xử lý ở bước
+    biên tập TOÀN CỤC sau khi có đủ ngữ cảnh cả câu chuyện, dựa trên điểm
+    "importance" — xem _trim_script_to_target."""
+    return ("Nhắc lại: đừng kể lể mọi chi tiết nhỏ, chỉ giữ những gì thật sự cần cho mạch truyện. "
+            "Đừng quên chấm điểm \"importance\" (1-5) trung thực cho mỗi dòng.")
+
+
+def _trim_script_to_target(script, target_minutes: float, tolerance: float = 1.15):
+    """Bước biên tập TOÀN CỤC cuối cùng: nếu tổng thời lượng ước tính vượt quá
+    (target_minutes * tolerance), cắt bớt các dòng ÍT QUAN TRỌNG NHẤT trước
+    (importance thấp nhất, và trong cùng mức importance thì cắt dòng dài/tốn
+    thời gian hơn trước) cho tới khi về dưới ngưỡng. KHÔNG BAO GIỜ cắt dòng có
+    importance >= 4 (bước ngoặt / thông tin cốt lõi) dù có vượt target, vì thà
+    video hơi dài hơn dự kiến còn hơn mất mạch truyện. Nếu target_minutes <= 0
+    (tắt tính năng) thì giữ nguyên toàn bộ."""
+    if not target_minutes or target_minutes <= 0 or not script:
+        return script
+
+    def est_duration(line):
+        return max(1.0, len(line.get("text", "")) / (WORDS_PER_SECOND * 5.0))
+        # ~5 ký tự/từ tiếng Việt trung bình -> chars / (words/s * chars/word) = giây
+
+    target_sec = target_minutes * 60.0
+    cap_sec = target_sec * tolerance
+    total = sum(est_duration(l) for l in script)
+    if total <= cap_sec:
+        return script
+
+    # Sắp theo importance tăng dần, cùng importance thì ước lượng thời lượng
+    # giảm dần trước (ưu tiên cắt câu vừa ít quan trọng vừa dài, hiệu quả hơn).
+    removable_idx = sorted(
+        (i for i, l in enumerate(script) if int(l.get("importance", 3) or 3) < 4),
+        key=lambda i: (int(script[i].get("importance", 3) or 3), -est_duration(script[i])),
+    )
+    to_drop = set()
+    for i in removable_idx:
+        if total <= cap_sec:
+            break
+        total -= est_duration(script[i])
+        to_drop.add(i)
+
+    kept = [l for i, l in enumerate(script) if i not in to_drop]
+    print(f"[script_gen] Biên tập toàn cục: kịch bản ước tính ~{ (total + sum(est_duration(script[i]) for i in to_drop)) / 60:.1f} phút "
+          f"> mục tiêu {target_minutes:.0f} phút -> cắt {len(to_drop)}/{len(script)} dòng ít quan trọng nhất "
+          f"(giữ nguyên mọi dòng importance>=4). Còn lại ước tính ~{total / 60:.1f} phút.")
+    return kept
 
 
 def generate_script(transcript, scenes, out_path: Path, video_path: Path = None):
@@ -69,6 +138,10 @@ def generate_script(transcript, scenes, out_path: Path, video_path: Path = None)
 
     if getattr(config, "SCRIPT_POLISH_ENABLED", True) and script:
         script = _polish_script(script)
+
+    target_minutes = getattr(config, "SCRIPT_TARGET_MINUTES", 0.0)
+    if target_minutes and script:
+        script = _trim_script_to_target(script, target_minutes)
 
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(script, f, ensure_ascii=False, indent=2)
@@ -156,14 +229,16 @@ Bây giờ hãy viết tiếp lời bình cho đoạn phim từ giây {block['st
 chuyện gì xảy ra — không được dịch/liệt kê lại từng câu):
 {t_block if t_block.strip() else "(không có thoại đáng kể trong đoạn này — có thể đoạn này không quan trọng, hãy cân nhắc tóm tắt cực ngắn hoặc bỏ qua)"}
 
+{_selectivity_reminder()}
+
 Yêu cầu định dạng:
-- Trả về JSON array, mỗi phần tử có: ref_start (float), ref_end (float), text (string).
+- Trả về JSON array, mỗi phần tử có: ref_start (float), ref_end (float), text (string), importance (int 1-5).
 - ref_start >= {block['start']:.1f} và ref_end <= {block['end']:.1f} (phải nằm trong đoạn này).
 - Nếu đoạn này không có gì quan trọng với cốt truyện, có thể trả về mảng rỗng [] — đừng cố bịa chuyện.
 - Không giải thích gì thêm, chỉ trả về JSON thuần, không kèm markdown/code fence.
 
 Ví dụ định dạng (nội dung chỉ minh hoạ):
-[{{"ref_start": {block['start']:.1f}, "ref_end": {min(block['start'] + 4, block['end']):.1f}, "text": "..."}}]
+[{{"ref_start": {block['start']:.1f}, "ref_end": {min(block['start'] + 4, block['end']):.1f}, "text": "...", "importance": 3}}]
 """
     raw = llm_client.call_text(
         prompt, config.LLM_PROVIDER, config.LLM_MODEL, config.LLM_API_KEY, config.LLM_BASE_URL,
@@ -194,8 +269,10 @@ sáng, bố cục, màu sắc, góc máy) — chỉ dùng hình ảnh để suy 
 Thoại nghe được trong đoạn này (nếu có, có thể rất ít hoặc không có):
 {t_block if t_block.strip() else "(không có thoại)"}
 
+{_selectivity_reminder()}
+
 Yêu cầu định dạng:
-- Trả về JSON array, mỗi phần tử có: ref_start (float), ref_end (float), text (string).
+- Trả về JSON array, mỗi phần tử có: ref_start (float), ref_end (float), text (string), importance (int 1-5).
 - ref_start >= {block['start']:.1f} và ref_end <= {block['end']:.1f} (phải nằm trong đoạn này).
 - Nếu đoạn này chỉ là cảnh chuyển/không quan trọng, trả về mảng rỗng [] thay vì mô tả cho có.
 - Không giải thích gì thêm, chỉ trả về JSON thuần, không kèm markdown/code fence.

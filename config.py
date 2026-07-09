@@ -69,6 +69,7 @@ LLM_API_KEY = _resolve_api_key(
 # TTS
 TTS_PROVIDER = _get("tts_service", "provider", "edge")
 DEFAULT_VOICE = _get("tts_service", "voice_vi", "vi-VN-HoaiMyNeural")
+TTS_RATE = _get("tts_service", "rate", "+0%")
 
 # Subtitle toggle (bật/tắt gắn phụ đề khi render)
 SUBTITLE_ENABLED = bool(_get("subtitle", "enabled", True))
@@ -83,6 +84,8 @@ SCENE_OUTPUT_FORMAT = _get("scene_detect", "output_format", "json")  # "json" | 
 
 # --- Script polish (bước biên tập lại kịch bản cho mạch lạc, xem script_gen.py) ---
 SCRIPT_POLISH_ENABLED = bool(_get("script", "polish_enabled", True))
+# Thời lượng video đích (phút), dùng để tính ngân sách lời bình/block.
+SCRIPT_TARGET_MINUTES = float(_get("script", "target_minutes", 20.0))
 
 # --- Director ---
 DIRECTOR_ENABLED = bool(_get("director", "enabled", True))

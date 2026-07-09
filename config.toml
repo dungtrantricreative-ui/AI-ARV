@@ -18,13 +18,24 @@ api_key = ""
 
 [script]
 polish_enabled = true
+# TRẦN MỀM cho thời lượng video (phút) — KHÔNG ép cứng từng đoạn nhỏ. AI vẫn
+# viết kịch bản tự do theo nội dung phim; chỉ sau khi có toàn bộ kịch bản +
+# chấm điểm độ quan trọng (importance) từng câu, nếu tổng thời lượng vượt
+# quá con số này thì mới cắt bớt những câu ÍT quan trọng nhất — không bao
+# giờ cắt các câu chứa bước ngoặt/thông tin cốt lõi dù có vượt target.
+# Đặt 0 để tắt hẳn (giữ nguyên kịch bản dài bao nhiêu cũng được).
+target_minutes = 20.0
 
 [director]
 enabled = true
 density_threshold = 3.0
 silence_ratio_threshold = 0.6
 max_vision_block_seconds = 40.0
-max_text_block_seconds = 300.0
+# Tăng từ 300 -> 600: gộp nhiều cảnh hơn mỗi lần gọi LLM text. Giảm ~1 nửa số
+# block (giảm số lần gọi API + thời gian throttle giữa các block), và vì mỗi
+# block giờ "ôm" nhiều nội dung hơn nên LLM buộc phải chọn lọc/nén ý nhiều
+# hơn thay vì kể lể từng đoạn ngắn -> kịch bản tổng thể cũng ngắn gọn hơn.
+max_text_block_seconds = 600.0
 frames_per_block = 2
 frame_max_width = 512
 confirm_with_llm = true
@@ -34,6 +45,9 @@ max_vision_ratio = 0.35
 [tts_service]
 provider = "edge"
 voice_vi = "vi-VN-HoaiMyNeural"
+# Tốc độ đọc so với giọng gốc. "+0%" = mặc định, "+5%" = nhanh hơn 5%.
+# edge-tts hỗ trợ chuỗi có dấu %, có thể âm ("-10%") hoặc dương ("+20%").
+rate = "+5%"
 
 [subtitle]
 # Bật/tắt việc gắn phụ đề (SRT) vào video khi render.
@@ -47,3 +61,25 @@ threshold = 27.0
 min_duration = 1.5
 interval_seconds = 5.0
 output_format = "json"
+
+[render]
+# Giai đoạn 1 (cắt song song) re-encode TỪNG đoạn video khớp lời thoại bằng
+# libx264 (trừ khi máy có GPU NVIDIA). Đây là phần TỐN THỜI GIAN NHẤT của cả
+# pipeline khi không có GPU, vì hàng trăm đoạn ngắn đều phải giải mã+mã hoá
+# lại pixel, không phải chỉ "cắt" (cắt file không tốn CPU, nhưng recap cần
+# cắt tại các mốc thời gian bất kỳ chứ không phải tại keyframe, nên bắt buộc
+# phải re-encode để không bị lệch/giật hình ở điểm cắt).
+#
+# "medium" (mặc định cũ của libx264) nén tốt nhưng CHẬM. "faster" nhanh hơn
+# khoảng 2-3 lần với chất lượng giảm không đáng kể ở crf thấp hơn 1-2 đơn vị
+# để bù lại. Nếu vẫn thấy chậm, thử "veryfast" hoặc "ultrafast".
+preset = "faster"
+crf = 19
+# 0 = tự động (số nhân CPU, tối đa 32). Trên Colab free (2 vCPU) không cần
+# chỉnh; trên máy nhiều nhân hơn có thể để 0 hoặc tăng nếu RAM đủ.
+max_parallel_segments = 0
+# Để trống "" = tự dò GPU NVIDIA (NVENC), fallback CPU nếu không có. NVENC
+# nhanh hơn CPU RẤT NHIỀU cho bước này (thường 5-10 lần) — nếu bạn đang chạy
+# trên Google Colab, hãy đổi Runtime type -> GPU (T4) trước khi chạy render
+# để tự động được dùng GPU mà không cần sửa gì thêm ở đây.
+force_encoder = ""

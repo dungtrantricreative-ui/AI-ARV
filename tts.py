@@ -22,7 +22,8 @@ def get_audio_duration(file_path):
 
 async def _synth(text, output_path, voice=config.DEFAULT_VOICE):
     import edge_tts
-    communicate = edge_tts.Communicate(text, voice)
+    rate = getattr(config, "TTS_RATE", "+0%") or "+0%"
+    communicate = edge_tts.Communicate(text, voice, rate=rate)
     await communicate.save(output_path)
 
 
