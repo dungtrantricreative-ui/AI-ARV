@@ -56,7 +56,7 @@ rate = "+10%"
 # là toàn bộ kịch bản ~170 dòng bắn đi cùng lúc) khiến server trả lỗi
 # "No audio was received" hàng loạt. Giảm số này nếu vẫn còn thấy lỗi nhiều,
 # tăng lên nếu muốn render nhanh hơn và ít gặp lỗi.
-max_concurrent = 20
+max_concurrent = 30
 
 [subtitle]
 # Bật/tắt việc gắn phụ đề (SRT) vào video khi render.
@@ -103,13 +103,6 @@ frame_max_width = 512
 confirm_with_llm = true
 force_vision_first_scene = true
 max_vision_ratio = 0.35
-
-[tts_service]
-provider = "edge"
-voice_vi = "vi-VN-HoaiMyNeural"
-# Tốc độ đọc so với giọng gốc. "+0%" = mặc định, "+5%" = nhanh hơn 5%.
-# edge-tts hỗ trợ chuỗi có dấu %, có thể âm ("-10%") hoặc dương ("+20%").
-rate = "+5%"
 
 [subtitle]
 # Bật/tắt việc gắn phụ đề (SRT) vào video khi render.
