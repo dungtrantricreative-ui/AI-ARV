@@ -18,8 +18,7 @@ api_key = ""
 
 [script]
 polish_enabled = true
-target_minutes = 20.0
-protect_intro_minutes = 3.0
+target_minutes = 30.0
 
 [director]
 enabled = true
