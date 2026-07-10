@@ -70,6 +70,8 @@ LLM_API_KEY = _resolve_api_key(
 TTS_PROVIDER = _get("tts_service", "provider", "edge")
 DEFAULT_VOICE = _get("tts_service", "voice_vi", "vi-VN-HoaiMyNeural")
 TTS_RATE = _get("tts_service", "rate", "+0%")
+# Số lượt gọi TTS song song tối đa (xem giải thích trong config.toml).
+TTS_MAX_CONCURRENT = int(_get("tts_service", "max_concurrent", 4))
 
 # Subtitle toggle (bật/tắt gắn phụ đề khi render)
 SUBTITLE_ENABLED = bool(_get("subtitle", "enabled", True))
@@ -86,6 +88,13 @@ SCENE_OUTPUT_FORMAT = _get("scene_detect", "output_format", "json")  # "json" | 
 SCRIPT_POLISH_ENABLED = bool(_get("script", "polish_enabled", True))
 # Thời lượng video đích (phút), dùng để tính ngân sách lời bình/block.
 SCRIPT_TARGET_MINUTES = float(_get("script", "target_minutes", 20.0))
+# Số phút ĐẦU kịch bản (theo ref_start) được BẢO VỆ khỏi bước cắt giảm cuối
+# cùng (_trim_script_to_target), bất kể điểm importance. Lý do: các câu mở
+# đầu phim thường là câu "dựng bối cảnh" (giới thiệu nhân vật/bối cảnh) nên
+# tự nhiên bị chấm importance thấp hơn các câu "cao trào/twist" — nếu không
+# bảo vệ, bước cắt giảm sẽ ưu tiên xoá đúng những câu giúp người xem hiểu
+# chuyện gì đang xảy ra ngay từ đầu.
+SCRIPT_PROTECT_INTRO_MINUTES = float(_get("script", "protect_intro_minutes", 3.0))
 
 # --- Director ---
 DIRECTOR_ENABLED = bool(_get("director", "enabled", True))

@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 import time
 from pathlib import Path
@@ -8,6 +9,27 @@ import logutil
 import director
 import frame_extract
 import llm_client
+
+# Model doi khi lo tay viet luon nhan importance vao ben trong field text
+# (thay vi de rieng o field "importance" nhu da yeu cau), vi du:
+#   "...anh ta chay tron. importance: 4"
+#   "...anh ta chay tron. (Importance: 4)"
+# TTS sau do doc y nguyen field text nay len -> lo ra "importance x" khi nghe.
+# Regex duoi day don sach moi bien the cua nhan nay o cuoi cau.
+_IMPORTANCE_LEAK_RE = re.compile(
+    r"[\.\s]*\(?\s*importance\s*[:\-]?\s*[1-5]\s*\)?\s*\.?\s*$", re.IGNORECASE
+)
+
+
+def _strip_importance_leak(text: str) -> str:
+    return _IMPORTANCE_LEAK_RE.sub("", text or "").strip()
+
+
+def _sanitize_script(script):
+    for line in script:
+        if "text" in line:
+            line["text"] = _strip_importance_leak(line["text"])
+    return script
 
 # Độ trễ (giây) chèn sau MỖI block kịch bản (dù thành công hay lỗi) để giữ
 # nhịp độ gọi API trong giới hạn tier hiện tại, tránh bị Cerebras/Gemma (hoặc
@@ -62,6 +84,18 @@ Chỉ tập trung vào 6 yếu tố: NHÂN VẬT — MỤC TIÊU — MÂU THUẪ
 Văn phong: kể chuyện tự nhiên, mạch lạc, hấp dẫn, như đang kể lại cho một người bạn nghe — không phải
 liệt kê hình ảnh, không phải phụ đề dịch thoại.
 
+BẮT BUỘC câu dẫn khi ĐỔI TUYẾN NHÂN VẬT: khi đoạn bạn đang viết chuyển sang một nhân vật/tuyến truyện
+khác với đoạn ngay trước đó (không phải tiếp tục cùng một cảnh/nhân vật), câu đầu tiên của đoạn PHẢI
+có một cụm dẫn dắt ngắn để người xem biết mạch truyện vừa chuyển hướng — ví dụ "Trong khi đó, ở...",
+"Cùng lúc này, [tên nhân vật]...", "Về phía [tên nhân vật]...", "Quay lại với...". KHÔNG được nhảy
+thẳng vào hành động của nhân vật mới mà không có câu dẫn, vì người xem sẽ bị hụt hẫng không hiểu vì
+sao đang xem cảnh này lại nhảy sang cảnh khác.
+
+BẮT BUỘC dựng bối cảnh cho khán giả chưa biết phim: nếu đây là những câu ĐẦU TIÊN của cả kịch bản
+(mở đầu phim), hoặc là lần đầu một nhân vật/địa điểm quan trọng xuất hiện, phải giới thiệu ngắn gọn
+đó là ai/ở đâu/bối cảnh gì trước khi kể hành động — đừng giả định người xem đã biết. Một kịch bản
+recap tốt phải khiến người xem chưa từng xem phim vẫn hiểu được ngay từ phút đầu tiên.
+
 CHẤM ĐIỂM ĐỘ QUAN TRỌNG: mỗi dòng lời bình bạn viết ra PHẢI kèm một trường "importance" từ 1 đến 5,
 do CHÍNH BẠN đánh giá dựa trên nội dung — không có công thức cố định, hãy dùng phán đoán biên kịch:
   5 = bước ngoặt cốt truyện, twist, quyết định thay đổi số phận nhân vật — thiếu câu này khán giả
@@ -86,14 +120,22 @@ def _selectivity_reminder() -> str:
             "Đừng quên chấm điểm \"importance\" (1-5) trung thực cho mỗi dòng.")
 
 
-def _trim_script_to_target(script, target_minutes: float, tolerance: float = 1.15):
+def _trim_script_to_target(script, target_minutes: float, tolerance: float = 1.15, protect_minutes: float = 0.0):
     """Bước biên tập TOÀN CỤC cuối cùng: nếu tổng thời lượng ước tính vượt quá
     (target_minutes * tolerance), cắt bớt các dòng ÍT QUAN TRỌNG NHẤT trước
     (importance thấp nhất, và trong cùng mức importance thì cắt dòng dài/tốn
     thời gian hơn trước) cho tới khi về dưới ngưỡng. KHÔNG BAO GIỜ cắt dòng có
     importance >= 4 (bước ngoặt / thông tin cốt lõi) dù có vượt target, vì thà
     video hơi dài hơn dự kiến còn hơn mất mạch truyện. Nếu target_minutes <= 0
-    (tắt tính năng) thì giữ nguyên toàn bộ."""
+    (tắt tính năng) thì giữ nguyên toàn bộ.
+
+    protect_minutes: các dòng có ref_start nằm trong N phút ĐẦU kịch bản cũng
+    KHÔNG BAO GIỜ bị cắt, dù importance thấp. Lý do: câu "dựng bối cảnh" mở
+    đầu (giới thiệu nhân vật/bối cảnh cho người chưa xem phim) thường được
+    chấm importance thấp hơn câu "cao trào" theo chính thang điểm đã yêu cầu
+    model dùng — nếu không bảo vệ riêng, bước cắt này sẽ luôn ưu tiên xoá
+    đúng phần nội dung giúp người xem hiểu chuyện gì đang xảy ra ngay từ đầu.
+    """
     if not target_minutes or target_minutes <= 0 or not script:
         return script
 
@@ -107,10 +149,14 @@ def _trim_script_to_target(script, target_minutes: float, tolerance: float = 1.1
     if total <= cap_sec:
         return script
 
+    protect_sec = max(0.0, protect_minutes) * 60.0
+
     # Sắp theo importance tăng dần, cùng importance thì ước lượng thời lượng
     # giảm dần trước (ưu tiên cắt câu vừa ít quan trọng vừa dài, hiệu quả hơn).
+    # Bỏ qua hoàn toàn các dòng nằm trong vùng "bảo vệ mở đầu" (protect_sec).
     removable_idx = sorted(
-        (i for i, l in enumerate(script) if int(l.get("importance", 3) or 3) < 4),
+        (i for i, l in enumerate(script)
+         if int(l.get("importance", 3) or 3) < 4 and float(l.get("ref_start", 0.0)) >= protect_sec),
         key=lambda i: (int(script[i].get("importance", 3) or 3), -est_duration(script[i])),
     )
     to_drop = set()
@@ -121,9 +167,10 @@ def _trim_script_to_target(script, target_minutes: float, tolerance: float = 1.1
         to_drop.add(i)
 
     kept = [l for i, l in enumerate(script) if i not in to_drop]
+    protect_note = f", bảo vệ {protect_minutes:.0f} phút đầu" if protect_sec > 0 else ""
     logutil.stage(f"[script_gen] Biên tập toàn cục: kịch bản ước tính ~{ (total + sum(est_duration(script[i]) for i in to_drop)) / 60:.1f} phút "
           f"> mục tiêu {target_minutes:.0f} phút -> cắt {len(to_drop)}/{len(script)} dòng ít quan trọng nhất "
-          f"(giữ nguyên mọi dòng importance>=4). Còn lại ước tính ~{total / 60:.1f} phút.")
+          f"(giữ nguyên mọi dòng importance>=4{protect_note}). Còn lại ước tính ~{total / 60:.1f} phút.")
     return kept
 
 
@@ -136,13 +183,16 @@ def generate_script(transcript, scenes, out_path: Path, video_path: Path = None)
         script = _generate_script_directed(transcript, scenes, video_path)
 
     script.sort(key=lambda x: x.get("ref_start", 0.0))
+    script = _sanitize_script(script)
 
     if getattr(config, "SCRIPT_POLISH_ENABLED", True) and script:
         script = _polish_script(script)
+        script = _sanitize_script(script)
 
     target_minutes = getattr(config, "SCRIPT_TARGET_MINUTES", 0.0)
     if target_minutes and script:
-        script = _trim_script_to_target(script, target_minutes)
+        protect_minutes = getattr(config, "SCRIPT_PROTECT_INTRO_MINUTES", 0.0)
+        script = _trim_script_to_target(script, target_minutes, protect_minutes=protect_minutes)
 
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(script, f, ensure_ascii=False, indent=2)

@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 import asyncio
@@ -6,6 +7,13 @@ import json
 from pathlib import Path
 import config
 import logutil
+
+# Lưới an toàn thứ 2 (script_gen.py đã lọc trước khi lưu script_draft.json,
+# nhưng nếu người dùng tự sửa tay file JSON hoặc dùng script cũ chưa lọc,
+# vẫn không để lọt nhãn "importance: N" vào audio đọc lên).
+_IMPORTANCE_LEAK_RE = re.compile(
+    r"[\.\s]*\(?\s*importance\s*[:\-]?\s*[1-5]\s*\)?\s*\.?\s*$", re.IGNORECASE
+)
 
 
 def get_audio_duration(file_path):
@@ -41,12 +49,18 @@ async def safe_synth_with_retry(text, raw_path, max_retries=3):
             await asyncio.sleep(2 ** attempt)
 
 
-async def _process_tts_line_async(line, idx):
+async def _process_tts_line_async(line, idx, semaphore):
     raw_path = config.TEMP_DIR / f"tts_{idx}_raw.mp3"
     final_path = config.TEMP_DIR / f"tts_{idx}_native.mp3"
 
+    text = _IMPORTANCE_LEAK_RE.sub("", line["text"] or "").strip()
+    if not text:
+        logutil.warn(f"⚠️ Dòng {idx} rỗng sau khi lọc, bỏ qua.")
+        return None
+
     try:
-        await safe_synth_with_retry(line["text"], str(raw_path))
+        async with semaphore:
+            await safe_synth_with_retry(text, str(raw_path))
     except Exception as e:
         logutil.err(f"❌ Không thể tạo giọng nói dòng {idx}: {e}")
         return None
@@ -64,14 +78,16 @@ async def _process_tts_line_async(line, idx):
         "idx": idx,
         "start": line["ref_start"],
         "end": line["ref_end"],
-        "text": line["text"],
+        "text": text,
         "audio_path": str(final_path),
         "duration": actual_duration
     }
 
 
 async def process_all_tts_async(script):
-    tasks = [_process_tts_line_async(line, idx) for idx, line in enumerate(script)]
+    max_concurrent = max(1, getattr(config, "TTS_MAX_CONCURRENT", 4))
+    semaphore = asyncio.Semaphore(max_concurrent)
+    tasks = [_process_tts_line_async(line, idx, semaphore) for idx, line in enumerate(script)]
     segments = await asyncio.gather(*tasks)
     segments = [s for s in segments if s is not None]
     out = config.WORK_DIR / "tts_segments.json"
