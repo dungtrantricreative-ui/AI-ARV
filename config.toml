@@ -24,7 +24,7 @@ polish_enabled = true
 # quá con số này thì mới cắt bớt những câu ÍT quan trọng nhất — không bao
 # giờ cắt các câu chứa bước ngoặt/thông tin cốt lõi dù có vượt target.
 # Đặt 0 để tắt hẳn (giữ nguyên kịch bản dài bao nhiêu cũng được).
-target_minutes = 20.0
+target_minutes = 30.0
 
 [director]
 enabled = true
@@ -86,4 +86,4 @@ force_encoder = ""
 # true  = sau khi soạn xong kịch bản nháp, AI tự động render luôn (không cần
 #         gõ "lên phim"/"render" để xác nhận nữa).
 # false = giữ hành vi cũ, AI dừng lại chờ bạn xác nhận trước khi render.
-auto_render = false
+auto_render = true
