@@ -74,3 +74,7 @@ max_parallel_segments = 0
 # lùi về CPU (libx264) nếu không có. Có thể ép cứng "libx264" hoặc
 # "h264_nvenc" nếu muốn.
 force_encoder = ""
+# true  = sau khi soạn xong kịch bản nháp, AI tự động render luôn (không cần
+#         gõ "lên phim"/"render" để xác nhận nữa).
+# false = giữ hành vi cũ, AI dừng lại chờ bạn xác nhận trước khi render.
+auto_render = false

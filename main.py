@@ -119,7 +119,12 @@ def smart_agent_mode():
                         generate_script(transcript, scenes, draft_path, video_path=video_path)
                         
                         print(f"\nAI: Tuyệt quá! Tôi đã phân tích xong phim và soạn sẵn kịch bản tại {draft_path} rồi.")
-                        print("AI: Bạn xem qua kịch bản nhé, nếu ưng ý rồi thì bảo tôi 'lên phim' hay 'render' là xong ngay!")
+
+                        if config.RENDER_AUTO:
+                            print("AI: (auto_render đang bật) Tôi render luôn cho bạn nhé, khỏi cần chờ xác nhận!")
+                            run_render_flow()
+                        else:
+                            print("AI: Bạn xem qua kịch bản nhé, nếu ưng ý rồi thì bảo tôi 'lên phim' hay 'render' là xong ngay!")
                     except Exception as e:
                         print(f"AI: ❌ Có chút trục trặc trong lúc phân tích: {e}")
                     continue

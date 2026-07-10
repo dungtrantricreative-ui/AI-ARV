@@ -59,3 +59,20 @@ min_duration = 1.5
 interval_seconds = 5.0
 # Định dạng xuất: "json" | "xml" | "edl"
 output_format = "json"
+
+[render]
+# CRF càng thấp càng nét (file nặng hơn). 18-20 là mức "gần như lossless"
+# phù hợp để đăng YouTube (YouTube sẽ nén lại một lần nữa phía server).
+crf = 20
+# Preset libx264: "medium"/"slow" nén hiệu quả hơn "fast" ở cùng crf.
+preset = "medium"
+# Số luồng cắt song song. 0 = tự động theo số nhân CPU máy bạn.
+max_parallel_segments = 0
+# Để trống "" để hệ thống tự dò GPU NVIDIA (NVENC) và dùng nếu có, tự
+# lùi về CPU (libx264) nếu không có. Có thể ép cứng "libx264" hoặc
+# "h264_nvenc" nếu muốn.
+force_encoder = ""
+# true  = sau khi soạn xong kịch bản nháp, AI tự động render luôn (không cần
+#         gõ "lên phim"/"render" để xác nhận nữa).
+# false = giữ hành vi cũ, AI dừng lại chờ bạn xác nhận trước khi render.
+auto_render = false

@@ -83,3 +83,7 @@ max_parallel_segments = 0
 # trên Google Colab, hãy đổi Runtime type -> GPU (T4) trước khi chạy render
 # để tự động được dùng GPU mà không cần sửa gì thêm ở đây.
 force_encoder = ""
+# true  = sau khi soạn xong kịch bản nháp, AI tự động render luôn (không cần
+#         gõ "lên phim"/"render" để xác nhận nữa).
+# false = giữ hành vi cũ, AI dừng lại chờ bạn xác nhận trước khi render.
+auto_render = false

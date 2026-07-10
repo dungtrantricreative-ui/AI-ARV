@@ -142,3 +142,6 @@ RENDER_MAX_WORKERS = int(_get("render", "max_parallel_segments", 0))
 # Ép cứng encoder thay vì tự dò GPU: "" (tự dò NVENC, fallback libx264),
 # "libx264" (chỉ CPU), hoặc "h264_nvenc" (chỉ GPU NVIDIA).
 RENDER_FORCE_ENCODER = _get("render", "force_encoder", "")
+# true = sau khi soạn xong kịch bản nháp, tự động render luôn (bỏ qua bước
+# hỏi xác nhận "lên phim"/"render" trong chế độ agent chat).
+RENDER_AUTO = bool(_get("render", "auto_render", False))
