@@ -112,6 +112,113 @@ hạn độ dài ở bước này, cứ viết đủ những gì cần để câ
 """
 
 
+# ============================================================
+#  3 CHẾ ĐỘ RECAP — mỗi mode có "phụ lục" riêng nối vào STYLE_GUIDE, cộng
+#  với các tham số điều khiển thuật toán khác nhau (kích thước block, ngưỡng
+#  bảo vệ khi cắt, có bật bước GỘP DÒNG hay không). Đây là phần cốt lõi để
+#  cùng 1 pipeline sinh ra 3 "gu biên tập" khác hẳn nhau từ CÙNG một nguồn
+#  transcript/scene, thay vì chỉ đổi mỗi con số target_minutes.
+# ============================================================
+
+_FAST_STYLE_ADDENDUM = """
+--- PHỤ LỤC CHẾ ĐỘ "RECAP NHANH" (đang bật) ---
+Đây là bản recap SIÊU TÓM TẮT, mục tiêu DUY NHẤT là giúp người xem NẮM ĐƯỢC CỐT TRUYỆN CHÍNH trong
+thời gian ngắn nhất, KHÔNG phải kể lại đầy đủ mọi chi tiết. Vì vậy:
+- BẮT BUỘC GỘP: nếu 2, 3 hoặc nhiều diễn biến/hành động nhỏ liên tiếp cùng phục vụ MỘT mục đích/MỘT
+  bước trong mạch truyện (vd: nhân vật chuẩn bị -> di chuyển -> đến nơi -> gặp người kia), hãy viết
+  GỘP thành đúng 1 câu duy nhất tóm tắt cả chuỗi đó, thay vì mỗi hành động một câu riêng.
+- CHỈ viết một dòng lời bình MỚI khi có một trong các mốc sau: đổi mục tiêu nhân vật, xuất hiện mâu
+  thuẫn mới, có hành động/quyết định làm thay đổi cục diện, hoặc một bước ngoặt/twist.
+- Bỏ hẳn (không viết dòng nào) cho: các phản ứng cảm xúc nhỏ không đổi hướng truyện, các đoạn hội
+  thoại giải thích lại điều khán giả đã biết, các cảnh sinh hoạt/di chuyển không mang thông tin mới.
+- Khi chấm "importance", hãy chấm NGHIÊM KHẮC hơn bình thường — chỉ chấm 4-5 cho đúng những gì thực
+  sự là xương sống cốt truyện, vì kịch bản này sẽ bị nén rất mạnh ở bước biên tập cuối.
+- Văn phong: câu ngắn, đi thẳng vào hành động và hệ quả, không dừng lại để mô tả không khí/cảm xúc dài
+  dòng — nhưng vẫn phải là câu chuyện mạch lạc, không phải liệt kê khô khan.
+"""
+
+_DETAILED_STYLE_ADDENDUM = """
+--- PHỤ LỤC CHẾ ĐỘ "RECAP CHI TIẾT" (đang bật) ---
+Đây là bản recap CHI TIẾT VỪA PHẢI: giữ lại đầy đủ các nút thắt của tuyến truyện chính VÀ các tuyến
+phụ quan trọng (không chỉ khung xương), kể cả những đoạn xây dựng động cơ/tâm lý nhân vật miễn là nó
+thực sự phục vụ việc hiểu chuyện. Không cần gộp nhiều diễn biến vào 1 câu như chế độ nhanh — mỗi diễn
+biến đáng kể nên có câu lời bình riêng, nhưng vẫn phải bỏ hẳn các đoạn thuần tuý chuyển cảnh/lấp chỗ
+trống không mang thông tin gì mới.
+"""
+
+_ULTRA_STYLE_ADDENDUM = """
+--- PHỤ LỤC CHẾ ĐỘ "RECAP SIÊU CHI TIẾT" (đang bật) ---
+Đây là bản recap ĐẦY ĐỦ NHẤT có thể trong khi vẫn là lời bình (không phải dịch thoại nguyên văn): hãy
+kể lại GẦN NHƯ MỌI diễn biến có ý nghĩa, kể cả các tuyến phụ, các đoạn xây dựng nhân vật/cảm xúc, các
+chi tiết nhỏ giúp hiểu sâu hơn động cơ và mối quan hệ giữa các nhân vật — đừng tự ý lược bỏ một diễn
+biến chỉ vì nó "không phải bước ngoặt lớn". CHỈ bỏ qua những gì THỰC SỰ trống rỗng về thông tin (cảnh
+chuyển thuần tuý, khoảnh khắc lặp lại không thêm gì mới). Vì kể chi tiết hơn, hãy chấm "importance"
+RỘNG RÃI hơn bình thường (ưu tiên 3-4 cho phần lớn diễn biến có thật) để bước biên tập cuối gần như
+không cắt gì — bản recap này ưu tiên ĐỘ ĐẦY ĐỦ hơn là ĐỘ NGẮN GỌN.
+"""
+
+RECAP_MODE_PRESETS = {
+    "fast": {
+        "label": "NHANH",
+        "style_addendum": _FAST_STYLE_ADDENDUM,
+        "ratio_attr": "SCRIPT_FAST_TARGET_RATIO",
+        # Block lớn hơn bình thường -> ép LLM nén nhiều nội dung/lần gọi hơn.
+        "text_block_scale": 1.8,
+        "vision_block_scale": 1.3,
+        # Chỉ các dòng importance >= 4 mới được BẢO VỆ tuyệt đối khỏi bị cắt.
+        "min_importance_protect": 4,
+        "protect_intro_minutes": 1.5,
+        # Bật bước GỘP DÒNG chuyên biệt sau khi có bản nháp (xem _merge_script_fast).
+        "enable_merge_pass": True,
+        "merge_group_seconds": 75.0,
+    },
+    "detailed": {
+        "label": "CHI TIẾT",
+        "style_addendum": _DETAILED_STYLE_ADDENDUM,
+        "ratio_attr": "SCRIPT_DETAILED_TARGET_RATIO",
+        "text_block_scale": 1.0,
+        "vision_block_scale": 1.0,
+        "min_importance_protect": 4,
+        "protect_intro_minutes": 3.0,
+        "enable_merge_pass": False,
+        "merge_group_seconds": 0.0,
+    },
+    "ultra": {
+        "label": "SIÊU CHI TIẾT",
+        "style_addendum": _ULTRA_STYLE_ADDENDUM,
+        "ratio_attr": "SCRIPT_ULTRA_TARGET_RATIO",
+        # Block nhỏ hơn -> LLM xử lý từng đoạn ngắn hơn -> giữ nhiều chi tiết hơn.
+        "text_block_scale": 0.55,
+        "vision_block_scale": 0.7,
+        # Chỉ cắt những dòng "gần như vô nghĩa" (importance == 1), gần như
+        # không đụng vào phần còn lại.
+        "min_importance_protect": 2,
+        "protect_intro_minutes": 5.0,
+        "enable_merge_pass": False,
+        "merge_group_seconds": 0.0,
+    },
+}
+
+# Preset đang active trong lần gọi generate_script() hiện tại. Pipeline sinh
+# kịch bản chạy tuần tự (không đa luồng) nên dùng biến module-level đơn giản
+# thay vì phải truyền preset xuyên suốt qua rất nhiều hàm nội bộ.
+_active_preset = RECAP_MODE_PRESETS["fast"]
+
+
+def _get_recap_preset():
+    mode = str(getattr(config, "SCRIPT_RECAP_MODE", "fast") or "fast").strip().lower()
+    preset = RECAP_MODE_PRESETS.get(mode)
+    if preset is None:
+        logutil.warn(f"⚠️ [script_gen] recap_mode '{mode}' không hợp lệ (chỉ nhận fast/detailed/ultra). "
+                      f"Dùng mặc định 'fast'.")
+        mode, preset = "fast", RECAP_MODE_PRESETS["fast"]
+    return mode, preset
+
+
+def _active_style_guide() -> str:
+    return STYLE_GUIDE + "\n" + _active_preset.get("style_addendum", "")
+
+
 def _selectivity_reminder() -> str:
     """Nhắc nhở NHẸ, không ép số từ/giây cụ thể (khác bản cũ dùng ngân sách cứng
     theo % thời lượng block — cách đó dễ cắt cụt những đoạn thực sự quan trọng
@@ -122,14 +229,22 @@ def _selectivity_reminder() -> str:
             "Đừng quên chấm điểm \"importance\" (1-5) trung thực cho mỗi dòng.")
 
 
-def _trim_script_to_target(script, target_minutes: float, tolerance: float = 1.15, protect_minutes: float = 0.0):
+def _trim_script_to_target(script, target_minutes: float, tolerance: float = 1.15, protect_minutes: float = 0.0,
+                            min_importance_protect: int = 4):
     """Bước biên tập TOÀN CỤC cuối cùng: nếu tổng thời lượng ước tính vượt quá
     (target_minutes * tolerance), cắt bớt các dòng ÍT QUAN TRỌNG NHẤT trước
     (importance thấp nhất, và trong cùng mức importance thì cắt dòng dài/tốn
     thời gian hơn trước) cho tới khi về dưới ngưỡng. KHÔNG BAO GIỜ cắt dòng có
-    importance >= 4 (bước ngoặt / thông tin cốt lõi) dù có vượt target, vì thà
-    video hơi dài hơn dự kiến còn hơn mất mạch truyện. Nếu target_minutes <= 0
-    (tắt tính năng) thì giữ nguyên toàn bộ.
+    importance >= min_importance_protect dù có vượt target, vì thà video hơi
+    dài hơn dự kiến còn hơn mất mạch truyện. Nếu target_minutes <= 0 (tắt
+    tính năng) thì giữ nguyên toàn bộ.
+
+    min_importance_protect: ngưỡng "bất khả xâm phạm" — do TỪNG CHẾ ĐỘ RECAP
+    quyết định (xem RECAP_MODE_PRESETS). Chế độ "fast"/"detailed" dùng 4 (chỉ
+    bảo vệ bước ngoặt/thông tin cốt lõi, sẵn sàng cắt phần còn lại để đạt thời
+    lượng ngắn). Chế độ "ultra" dùng 2 (gần như chỉ cắt những dòng "gần như
+    vô nghĩa" ở mức 1, vì mục tiêu của chế độ này là ĐẦY ĐỦ chứ không phải
+    NGẮN GỌN).
 
     protect_minutes: các dòng có ref_start nằm trong N phút ĐẦU kịch bản cũng
     KHÔNG BAO GIỜ bị cắt, dù importance thấp. Lý do: câu "dựng bối cảnh" mở
@@ -152,13 +267,14 @@ def _trim_script_to_target(script, target_minutes: float, tolerance: float = 1.1
         return script
 
     protect_sec = max(0.0, protect_minutes) * 60.0
+    min_protect = int(min_importance_protect)
 
     # Sắp theo importance tăng dần, cùng importance thì ước lượng thời lượng
     # giảm dần trước (ưu tiên cắt câu vừa ít quan trọng vừa dài, hiệu quả hơn).
     # Bỏ qua hoàn toàn các dòng nằm trong vùng "bảo vệ mở đầu" (protect_sec).
     removable_idx = sorted(
         (i for i, l in enumerate(script)
-         if int(l.get("importance", 3) or 3) < 4 and float(l.get("ref_start", 0.0)) >= protect_sec),
+         if int(l.get("importance", 3) or 3) < min_protect and float(l.get("ref_start", 0.0)) >= protect_sec),
         key=lambda i: (int(script[i].get("importance", 3) or 3), -est_duration(script[i])),
     )
     to_drop = set()
@@ -172,17 +288,67 @@ def _trim_script_to_target(script, target_minutes: float, tolerance: float = 1.1
     protect_note = f", bảo vệ {protect_minutes:.0f} phút đầu" if protect_sec > 0 else ""
     logutil.stage(f"[script_gen] Biên tập toàn cục: kịch bản ước tính ~{ (total + sum(est_duration(script[i]) for i in to_drop)) / 60:.1f} phút "
           f"> mục tiêu {target_minutes:.0f} phút -> cắt {len(to_drop)}/{len(script)} dòng ít quan trọng nhất "
-          f"(giữ nguyên mọi dòng importance>=4{protect_note}). Còn lại ước tính ~{total / 60:.1f} phút.")
+          f"(giữ nguyên mọi dòng importance>={min_protect}{protect_note}). Còn lại ước tính ~{total / 60:.1f} phút.")
     return kept
 
 
+def _probe_source_duration_seconds(video_path) -> float:
+    """Đo thời lượng phim gốc (giây) qua ffprobe, dùng để TỰ ĐỘNG tính thời
+    lượng đích (target_minutes) theo tỉ lệ của từng chế độ recap khi người
+    dùng không ép cứng target_minutes trong config.toml. Trả về 0.0 nếu
+    không đo được (sẽ có fallback khác ở nơi gọi)."""
+    if not video_path:
+        return 0.0
+    import subprocess
+    cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+           "-of", "default=noprint_wrappers=1:nokey=1", str(video_path)]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=15).stdout.strip()
+        return float(out) if out else 0.0
+    except Exception:
+        return 0.0
+
+
+def _resolve_target_minutes(mode: str, preset: dict, scenes, video_path) -> float:
+    """Quyết định thời lượng đích (phút) cho kịch bản cuối cùng.
+
+    Ưu tiên: SCRIPT_TARGET_MINUTES trong config (nếu > 0) LUÔN thắng, coi như
+    người dùng ép cứng số phút họ muốn, bỏ qua chế độ recap. Nếu không, tự
+    tính = thời lượng phim gốc (phút) * tỉ lệ của mode đang chọn, kẹp trong
+    [SCRIPT_MIN_TARGET_MINUTES, SCRIPT_MAX_TARGET_MINUTES] để tránh phim quá
+    ngắn/dài cho ra kết quả phi lý (vd phim 4 phút không nên bị ép xuống dưới
+    2 phút, phim 4 tiếng không nên bị kéo lên vô hạn)."""
+    manual = float(getattr(config, "SCRIPT_TARGET_MINUTES", 0.0) or 0.0)
+    if manual > 0:
+        return manual
+
+    ratio = float(getattr(config, preset["ratio_attr"], 0.2))
+    source_sec = _probe_source_duration_seconds(video_path)
+    if source_sec <= 0 and scenes:
+        # Không đọc được video (vd đang chạy lại từ transcript có sẵn) -> ước
+        # lượng thời lượng phim gốc từ mốc kết thúc cảnh cuối cùng.
+        source_sec = scenes[-1].get("end", 0.0)
+    if source_sec <= 0:
+        # Không có cách nào ước lượng -> dùng số phút mặc định an toàn theo mode.
+        fallback = {"fast": 15.0, "detailed": 35.0, "ultra": 65.0}
+        return fallback.get(mode, 20.0)
+
+    lo = float(getattr(config, "SCRIPT_MIN_TARGET_MINUTES", 3.0))
+    hi = float(getattr(config, "SCRIPT_MAX_TARGET_MINUTES", 120.0))
+    target = (source_sec / 60.0) * ratio
+    return max(lo, min(hi, target))
+
+
 def generate_script(transcript, scenes, out_path: Path, video_path: Path = None):
-    print("[script_gen] Đang sinh kịch bản nháp...")
+    global _active_preset
+    mode, preset = _get_recap_preset()
+    _active_preset = preset
+    print(f"[script_gen] Đang sinh kịch bản nháp — chế độ recap: {preset['label']} ({mode})...")
 
     if not config.DIRECTOR_ENABLED or not scenes:
         script = _generate_script_legacy(transcript, scenes)
     else:
-        script = _generate_script_directed(transcript, scenes, video_path)
+        script = _generate_script_directed(transcript, scenes, video_path, preset)
 
     script.sort(key=lambda x: x.get("ref_start", 0.0))
     script = _sanitize_script(script)
@@ -191,14 +357,27 @@ def generate_script(transcript, scenes, out_path: Path, video_path: Path = None)
         script = _polish_script(script)
         script = _sanitize_script(script)
 
-    target_minutes = getattr(config, "SCRIPT_TARGET_MINUTES", 0.0)
+    # Chế độ "fast" có thêm bước GỘP DÒNG chuyên biệt: nén nhiều dòng liền kề
+    # thành 1 dòng duy nhất (khác bước polish ở trên — polish chỉ chỉnh câu
+    # chữ, KHÔNG đổi số lượng dòng). Chạy SAU polish để câu chữ đầu vào đã
+    # mạch lạc, giúp bước gộp cho kết quả tốt hơn.
+    if preset.get("enable_merge_pass") and script:
+        script = _merge_script_fast(script, preset.get("merge_group_seconds", 75.0))
+        script = _sanitize_script(script)
+
+    target_minutes = _resolve_target_minutes(mode, preset, scenes, video_path)
     if target_minutes and script:
-        protect_minutes = getattr(config, "SCRIPT_PROTECT_INTRO_MINUTES", 0.0)
-        script = _trim_script_to_target(script, target_minutes, protect_minutes=protect_minutes)
+        protect_minutes = preset.get("protect_intro_minutes", getattr(config, "SCRIPT_PROTECT_INTRO_MINUTES", 0.0))
+        min_importance_protect = preset.get("min_importance_protect", 4)
+        script = _trim_script_to_target(
+            script, target_minutes, protect_minutes=protect_minutes,
+            min_importance_protect=min_importance_protect,
+        )
 
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(script, f, ensure_ascii=False, indent=2)
-    logutil.stage(f"[script_gen] Xong: {len(script)} dòng thoại -> {out_path}")
+    logutil.stage(f"[script_gen] Xong ({preset['label']}): {len(script)} dòng thoại, "
+                  f"mục tiêu ~{target_minutes:.1f} phút -> {out_path}")
     return script
 
 
@@ -212,8 +391,17 @@ def generate_script(transcript, scenes, out_path: Path, video_path: Path = None)
 #  mạch truyện xuyên suốt cả video thay vì chỉ dịch từng khúc transcript.
 # ============================================================
 
-def _generate_script_directed(transcript, scenes, video_path: Path):
-    blocks = director.plan_scenes(scenes, transcript)
+def _generate_script_directed(transcript, scenes, video_path: Path, preset: dict = None):
+    preset = preset or _active_preset
+    text_scale = float(preset.get("text_block_scale", 1.0))
+    vision_scale = float(preset.get("vision_block_scale", 1.0))
+    max_text_block_sec = config.DIRECTOR_MAX_TEXT_BLOCK_SEC * text_scale
+    max_vision_block_sec = config.DIRECTOR_MAX_VISION_BLOCK_SEC * vision_scale
+    blocks = director.plan_scenes(
+        scenes, transcript,
+        max_text_block_sec=max_text_block_sec,
+        max_vision_block_sec=max_vision_block_sec,
+    )
     if not blocks:
         return _generate_script_legacy(transcript, scenes)
 
@@ -273,7 +461,7 @@ def _story_context_block(story_so_far: str) -> str:
 
 def _generate_text_block(block, transcript, story_so_far: str = ""):
     t_block = _format_transcript_range(transcript, block["start"], block["end"])
-    prompt = f"""{STYLE_GUIDE}
+    prompt = f"""{_active_style_guide()}
 
 {_story_context_block(story_so_far)}
 
@@ -309,7 +497,7 @@ def _generate_vision_block(block, transcript, video_path, frames_dir, tag, story
         return _generate_text_block(block, transcript, story_so_far)
 
     t_block = _format_transcript_range(transcript, block["start"], block["end"])
-    prompt = f"""{STYLE_GUIDE}
+    prompt = f"""{_active_style_guide()}
 
 {_story_context_block(story_so_far)}
 
@@ -405,7 +593,7 @@ def _polish_script(script):
 
 def _polish_chunk(chunk, story_so_far: str):
     numbered = "\n".join(f"{idx}: {l.get('text', '')}" for idx, l in enumerate(chunk))
-    prompt = f"""{STYLE_GUIDE}
+    prompt = f"""{_active_style_guide()}
 
 {_story_context_block(story_so_far)}
 
@@ -428,6 +616,125 @@ Ví dụ định dạng: ["câu đã biên tập 0", "câu đã biên tập 1", 
         temperature=0.5, label="script-polish",
     )
     return llm_client.extract_json_array_of_strings(raw)
+
+
+# ============================================================
+#  BƯỚC GỘP DÒNG (merge pass) — CHỈ chạy ở chế độ recap "fast".
+#
+#  Khác bước polish ở trên (chỉnh câu chữ nhưng GIỮ NGUYÊN số dòng), bước
+#  này chủ động GIẢM số dòng: gom các dòng nháp liền kề trong cùng 1 "cụm
+#  thời gian" (mặc định ~75 giây liên tục trên timeline gốc — xem
+#  merge_group_seconds trong RECAP_MODE_PRESETS) rồi nhờ LLM viết lại thành
+#  ĐÚNG 1 câu duy nhất tóm tắt cả cụm, thay vì mỗi diễn biến nhỏ một câu.
+#  Đây chính là thuật toán "hiểu kịch bản gốc rồi gộp nhiều dòng thành một"
+#  mà chế độ recap nhanh cần, để một phim 2 tiếng còn lại khoảng 15 phút mà
+#  vẫn mạch lạc thay vì chỉ cắt trụi các câu importance thấp.
+#
+#  Mốc thời gian (ref_start/ref_end) của dòng gộp = [start cụm, end cụm] —
+#  KHÔNG bịa mốc mới, để bước render sau vẫn chọn đúng đoạn hình gốc tương
+#  ứng cho TTS đọc lên (không phá đồng bộ audio/hình).
+#
+#  An toàn: cụm nào LLM gộp lỗi/parse hỏng thì GIỮ NGUYÊN các dòng gốc của
+#  cụm đó (không gộp), thà kịch bản hơi dài hơn còn hơn mất nội dung.
+# ============================================================
+
+def _cluster_script_by_time(script, group_seconds: float):
+    """Chia script (đã sort theo ref_start) thành các cụm liên tiếp, mỗi cụm
+    trải dài tối đa `group_seconds` giây trên timeline gốc. Một cụm luôn có
+    ÍT NHẤT 1 dòng; cụm chỉ có 1 dòng thì merge pass sẽ tự bỏ qua (không có
+    gì để gộp)."""
+    if group_seconds <= 0:
+        return [script]
+    clusters = []
+    cur = []
+    cur_start = None
+    for line in script:
+        start = float(line.get("ref_start", 0.0))
+        if cur and (start - cur_start) > group_seconds:
+            clusters.append(cur)
+            cur = []
+        if not cur:
+            cur_start = start
+        cur.append(line)
+    if cur:
+        clusters.append(cur)
+    return clusters
+
+
+def _merge_cluster(cluster, story_so_far: str):
+    """Gọi LLM 1 lần để nén N dòng của 1 cụm thành ĐÚNG 1 câu lời bình duy
+    nhất. Trả về (text, importance) hoặc None nếu lỗi/parse hỏng."""
+    numbered = "\n".join(f"{idx}: {l.get('text', '')}" for idx, l in enumerate(cluster))
+    prompt = f"""{_active_style_guide()}
+
+{_story_context_block(story_so_far)}
+
+Dưới đây là {len(cluster)} câu lời bình NHÁP liên tiếp (đánh số 0..{len(cluster) - 1}, đúng thứ tự kể),
+tất cả đều nằm trong cùng một khoảng thời gian ngắn của phim và cùng phục vụ một chuỗi diễn biến:
+{numbered}
+
+Nhiệm vụ: viết lại thành ĐÚNG 1 CÂU (hoặc 1 đoạn ngắn 2-3 câu nếu thực sự cần) tóm tắt LẠI TOÀN BỘ
+{len(cluster)} câu trên theo đúng tinh thần "RECAP NHANH" ở phụ lục STYLE GUIDE — giữ đúng trình tự
+nhân quả, bỏ hết chi tiết phụ, chỉ giữ điều gì thực sự thay đổi mạch truyện.
+
+Trả về CHÍNH XÁC 1 JSON object dạng:
+{{"text": "câu đã gộp", "importance": <int 1-5, lấy mức quan trọng cao nhất phù hợp với nội dung đã gộp>}}
+Không giải thích gì thêm, chỉ trả JSON thuần, không kèm markdown/code fence.
+"""
+    raw = llm_client.call_text(
+        prompt, config.LLM_PROVIDER, config.LLM_MODEL, config.LLM_API_KEY, config.LLM_BASE_URL,
+        temperature=0.4, label="script-merge",
+    )
+    data = llm_client.extract_json_object(raw)
+    text = str(data.get("text", "")).strip()
+    if not text:
+        return None
+    try:
+        importance = int(data.get("importance", 3) or 3)
+    except (TypeError, ValueError):
+        importance = 3
+    importance = max(1, min(5, importance))
+    return text, importance
+
+
+def _merge_script_fast(script, group_seconds: float):
+    clusters = _cluster_script_by_time(script, group_seconds)
+    logutil.stage(f"[script_gen] Gộp dòng (chế độ NHANH): {len(script)} dòng nháp -> {len(clusters)} cụm "
+                  f"(~{group_seconds:.0f}s/cụm)...")
+    merged = []
+    story_so_far = ""
+    n_clusters = len(clusters)
+    for i, cluster in enumerate(clusters, 1):
+        if len(cluster) <= 1:
+            # Không có gì để gộp -> giữ nguyên dòng đơn lẻ.
+            merged.extend(cluster)
+            story_so_far = _update_story_context(story_so_far, cluster)
+            continue
+        try:
+            result = _merge_cluster(cluster, story_so_far)
+        except Exception as e:
+            logutil.warn(f"⚠️ [script_gen] Gộp cụm {i}/{n_clusters} lỗi ({e}). Giữ nguyên {len(cluster)} dòng gốc.")
+            result = None
+
+        if result is None:
+            merged.extend(cluster)
+            story_so_far = _update_story_context(story_so_far, cluster)
+        else:
+            text, importance = result
+            merged_line = {
+                "ref_start": cluster[0].get("ref_start", 0.0),
+                "ref_end": cluster[-1].get("ref_end", cluster[0].get("ref_start", 0.0)),
+                "text": text,
+                "importance": importance,
+            }
+            merged.append(merged_line)
+            story_so_far = _update_story_context(story_so_far, [merged_line])
+
+        if i < n_clusters:
+            time.sleep(API_THROTTLE_SEC)
+
+    logutil.stage(f"[script_gen] Gộp dòng xong: {len(script)} -> {len(merged)} dòng.")
+    return merged
 
 
 # ============================================================
@@ -457,7 +764,7 @@ def format_scenes_block(scenes):
 def _build_prompt(transcript, scenes):
     t_block = _format_transcript(transcript)
     s_block = format_scenes_block(scenes)
-    prompt = f"""{STYLE_GUIDE}
+    prompt = f"""{_active_style_guide()}
 
 Dưới đây là transcript và danh sách cảnh của toàn bộ video. Hãy kể lại thành kịch bản recap theo đúng
 tinh thần STYLE GUIDE ở trên — hiểu cốt truyện rồi kể lại, không dịch/mô tả từng câu/từng cảnh rời rạc.

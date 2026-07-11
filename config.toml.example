@@ -29,13 +29,24 @@ api_key = ""
 # câu sáo rỗng, giữ mạch truyện xuyên suốt). Tốn thêm vài lần gọi LLM text
 # (rẻ) nhưng cải thiện chất lượng recap rõ rệt. Tắt nếu muốn tiết kiệm tối đa.
 polish_enabled = true
-# Trần mềm thời lượng video đích (phút). 0 = tắt, giữ nguyên kịch bản dài
-# bao nhiêu tuỳ nội dung.
-target_minutes = 20.0
 # "Tốc độ gửi block": độ trễ (giây) chèn giữa MỖI lần gọi API khi soạn kịch
 # bản theo block (text/vision) và bước polish. Giảm để soạn nhanh hơn (dễ
 # dính rate-limit 429 hơn với key free tier); tăng nếu hay bị lỗi 429.
 block_throttle_seconds = 2.5
+
+# Chế độ recap: "fast" (NHANH, mặc định, 2h phim -> ~15 phút, gộp nhiều
+# diễn biến thành 1 câu) | "detailed" (CHI TIẾT, ~35-40 phút, giữ mọi nút
+# thắt phụ) | "ultra" (SIÊU CHI TIẾT, ~65-75 phút, kể gần như đầy đủ).
+recap_mode = "fast"
+# Trần mềm thời lượng video đích (phút). 0 (mặc định) = TỰ ĐỘNG tính theo
+# recap_mode * thời lượng phim gốc (xem *_target_ratio bên dưới). Đặt > 0
+# để ép cứng, bỏ qua tỉ lệ theo mode.
+target_minutes = 0.0
+fast_target_ratio = 0.125
+detailed_target_ratio = 0.30
+ultra_target_ratio = 0.55
+min_target_minutes = 3.0
+max_target_minutes = 120.0
 
 [director]
 # "AI truong nhom": tu quyet dinh doan nao chi can transcript (re, nhanh) va

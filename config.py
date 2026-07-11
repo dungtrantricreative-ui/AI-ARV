@@ -91,8 +91,20 @@ SCRIPT_POLISH_ENABLED = bool(_get("script", "polish_enabled", True))
 # soạn kịch bản nhanh hơn (rủi ro dễ dính rate-limit 429 hơn với key free tier);
 # tăng lên nếu hay bị lỗi 429. 0 = gửi liên tục không chờ.
 SCRIPT_BLOCK_THROTTLE_SEC = float(_get("script", "block_throttle_seconds", 2.5))
-# Thời lượng video đích (phút), dùng để tính ngân sách lời bình/block.
-SCRIPT_TARGET_MINUTES = float(_get("script", "target_minutes", 20.0))
+# Chế độ recap: "fast" | "detailed" | "ultra" (xem RECAP_MODE_PRESETS trong
+# script_gen.py cho chi tiết thuật toán từng mode). Mặc định "fast".
+SCRIPT_RECAP_MODE = str(_get("script", "recap_mode", "fast")).strip().lower()
+
+# Thời lượng video đích (phút), ép cứng. 0 = TỰ ĐỘNG tính theo recap_mode
+# (xem *_TARGET_RATIO bên dưới) nhân với thời lượng phim gốc.
+SCRIPT_TARGET_MINUTES = float(_get("script", "target_minutes", 0.0))
+# Tỉ lệ thời lượng đích / thời lượng phim gốc cho từng mode, dùng khi
+# SCRIPT_TARGET_MINUTES = 0 (tự động).
+SCRIPT_FAST_TARGET_RATIO = float(_get("script", "fast_target_ratio", 0.125))
+SCRIPT_DETAILED_TARGET_RATIO = float(_get("script", "detailed_target_ratio", 0.30))
+SCRIPT_ULTRA_TARGET_RATIO = float(_get("script", "ultra_target_ratio", 0.55))
+SCRIPT_MIN_TARGET_MINUTES = float(_get("script", "min_target_minutes", 3.0))
+SCRIPT_MAX_TARGET_MINUTES = float(_get("script", "max_target_minutes", 120.0))
 # Số phút ĐẦU kịch bản (theo ref_start) được BẢO VỆ khỏi bước cắt giảm cuối
 # cùng (_trim_script_to_target), bất kể điểm importance. Lý do: các câu mở
 # đầu phim thường là câu "dựng bối cảnh" (giới thiệu nhân vật/bối cảnh) nên

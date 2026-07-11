@@ -143,12 +143,23 @@ def _remerge_blocks(blocks):
     return merged
 
 
-def _max_dur_for_mode(mode):
-    return config.DIRECTOR_MAX_VISION_BLOCK_SEC if mode == "vision" else config.DIRECTOR_MAX_TEXT_BLOCK_SEC
+def _max_dur_for_mode(mode, max_text_block_sec=None, max_vision_block_sec=None):
+    if mode == "vision":
+        return max_vision_block_sec if max_vision_block_sec is not None else config.DIRECTOR_MAX_VISION_BLOCK_SEC
+    return max_text_block_sec if max_text_block_sec is not None else config.DIRECTOR_MAX_TEXT_BLOCK_SEC
 
 
-def plan_scenes(scenes, transcript):
-    """Trả về danh sách block đã gộp: [{start, end, mode, scene_ids}]"""
+def plan_scenes(scenes, transcript, max_text_block_sec=None, max_vision_block_sec=None):
+    """Trả về danh sách block đã gộp: [{start, end, mode, scene_ids}]
+
+    max_text_block_sec / max_vision_block_sec: cho phép ghi đè kích thước
+    block tối đa theo GIÂY so với giá trị mặc định trong config.toml — dùng
+    bởi từng CHẾ ĐỘ RECAP (xem script_gen.RECAP_MODE_PRESETS) để chỉnh độ
+    "thô/mịn" của việc gộp cảnh: block CÀNG LỚN -> mỗi lần gọi LLM phải nén
+    CÀNG NHIỀU nội dung -> recap CÀNG NHANH/thô (chế độ "fast"); block CÀNG
+    NHỎ -> LLM xử lý từng đoạn ngắn, giữ được nhiều chi tiết hơn -> recap
+    CÀNG chi tiết (chế độ "ultra"). None = dùng đúng giá trị config gốc.
+    """
     if not scenes:
         return []
     total_duration = scenes[-1]["end"]
@@ -170,7 +181,10 @@ def plan_scenes(scenes, transcript):
         density_threshold *= 0.5
         silence_threshold = min(silence_threshold + 0.15, 0.95)
 
-    blocks = _merge_adjacent(labeled, _max_dur_for_mode)
+    blocks = _merge_adjacent(
+        labeled,
+        lambda mode: _max_dur_for_mode(mode, max_text_block_sec, max_vision_block_sec),
+    )
 
     if config.DIRECTOR_CONFIRM_WITH_LLM:
         blocks = _confirm_vision_blocks(blocks, transcript)

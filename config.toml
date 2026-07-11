@@ -18,8 +18,34 @@ api_key = ""
 
 [script]
 polish_enabled = true
-target_minutes = 30.0
 block_throttle_seconds = 0.3
+
+# ============================================================
+#  CHẾ ĐỘ RECAP — 3 mức độ, mỗi mức có thuật toán riêng (xem chi tiết
+#  thuật toán từng mode trong script_gen.py, khối RECAP_MODE_PRESETS).
+#    "fast"     (NHANH, mặc định)   — phim 2h -> còn ~15 phút. Gộp nhiều
+#                diễn biến nhỏ thành 1 câu, chỉ giữ khung xương cốt truyện.
+#    "detailed" (CHI TIẾT)          — phim 2h -> còn ~35-40 phút. Giữ đủ
+#                các nút thắt phụ, không gộp dòng, chỉ cắt câu sáo rỗng.
+#    "ultra"    (SIÊU CHI TIẾT)     — phim 2h -> còn ~65-75 phút. Kể gần
+#                như đầy đủ mọi diễn biến kể cả tuyến phụ, block nhỏ hơn để
+#                không bỏ sót chi tiết, hầu như không cắt bớt.
+recap_mode = "fast"
+
+# target_minutes: ép cứng thời lượng đích (phút), BỎ QUA tỉ lệ theo recap_mode
+# ở trên. Để 0 (mặc định) = TỰ ĐỘNG tính theo recap_mode * thời lượng phim gốc.
+target_minutes = 0.0
+
+# Tỉ lệ thời lượng đích / thời lượng phim gốc cho từng mode (chỉ dùng khi
+# target_minutes = 0 ở trên). vd fast_target_ratio = 0.125 -> phim 120 phút
+# ra recap ~15 phút.
+fast_target_ratio = 0.125
+detailed_target_ratio = 0.30
+ultra_target_ratio = 0.55
+# Chặn trên/dưới (phút) cho thời lượng đích tự động, tránh phim quá ngắn/dài
+# cho ra recap phi lý (vd phim 5 phút không nên ép recap xuống < 3 phút).
+min_target_minutes = 3.0
+max_target_minutes = 120.0
 
 [director]
 enabled = true

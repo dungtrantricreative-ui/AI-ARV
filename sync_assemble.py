@@ -220,18 +220,54 @@ def _run_ffmpeg_logged(cmd: list, total_duration: float, stage_label: str, log_p
 # truyền thẳng qua tham số dòng lệnh, để tránh giới hạn độ dài command-line
 # của hệ điều hành khi phim có hàng trăm dòng thoại.
 
-def _build_single_pass_filter_script(tts_segments, fps, sub_filter, bgm_path, bgm_volume, bgm_loop, total_duration):
+def _build_single_pass_filter_script(tts_segments, fps, sub_filter, bgm_path, bgm_volume, bgm_loop, total_duration,
+                                      source_duration: float = 0.0):
     n = len(tts_segments)
     lines = []
 
     # --- Nhánh hình: trim từng đoạn từ input gốc [0:v] rồi concat lại ---
+    #
+    # SỬA LỖI ĐỒNG BỘ QUAN TRỌNG: trước đây mỗi đoạn hình được trim đúng
+    # [start, start+duration] mà KHÔNG kiểm tra xem video gốc còn đủ khung
+    # hình tới đó hay không. Nếu start+duration vượt quá thời lượng thật của
+    # video gốc (thường xảy ra ở những dòng cuối kịch bản, hoặc khi lời TTS
+    # của 1 dòng dài hơn phần footage còn lại), nhánh trim đó cho ra 1 đoạn
+    # NGẮN HƠN đoạn audio TTS tương ứng của nó. Vì nhánh hình (concat riêng)
+    # và nhánh tiếng (concat riêng) được ghép ĐỘC LẬP với nhau, một đoạn hình
+    # bị hụt như vậy làm lệch tổng thời lượng hình so với tiếng NGAY TỪ ĐÓ,
+    # và lệch này CỘNG DỒN cho mọi đoạn phía sau — tới cuối video, hình đã
+    # chạy hết khung (đứng lại ở khung cuối) trong khi tiếng vẫn còn tiếp
+    # tục phát, đúng hiện tượng "đứng hình nhưng tiếng vẫn chạy".
+    #
+    # Cách sửa: LUÔN đảm bảo mỗi nhánh hình xuất ra CHÍNH XÁC bằng thời
+    # lượng audio TTS của nó. Nếu footage gốc không đủ (chạy tới hết video
+    # gốc), phần THIẾU được bù bằng cách "đóng băng" (lặp lại) khung hình
+    # cuối cùng của đoạn đó (filter `tpad`) cho tới khi đủ thời lượng, thay
+    # vì để đoạn hình ngắn hơn đoạn tiếng. Điều này triệt tiêu hoàn toàn kiểu
+    # lệch cộng dồn nói trên — mọi đoạn hình/tiếng phía sau luôn khớp mốc
+    # thời gian tuyệt đối như kịch bản đã định, bất kể đoạn nào đó có bị
+    # thiếu footage hay không.
     v_labels = []
     for i, seg in enumerate(tts_segments):
         start = max(seg["start"], 0.0)
-        end = start + max(seg["duration"], 0.05)
-        lines.append(
-            f"[0:v]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS,fps={fps}[v{i}]"
-        )
+        req_dur = max(seg["duration"], 0.05)
+        if source_duration and source_duration > 0:
+            # Không cho phép bắt đầu trim ở/qua mép cuối video gốc.
+            start = min(start, max(source_duration - 0.05, 0.0))
+            avail = max(source_duration - start, 0.0)
+        else:
+            avail = req_dur
+        clip_dur = max(min(req_dur, avail), 0.05)
+        end = start + clip_dur
+        pad = max(0.0, req_dur - clip_dur)
+
+        branch = f"[0:v]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS,fps={fps}"
+        if pad > 0.02:
+            # Lặp lại khung hình cuối của đoạn trim để bù đủ thời lượng còn
+            # thiếu, giữ đoạn hình khớp CHÍNH XÁC thời lượng audio TTS.
+            branch += f",tpad=stop_mode=clone:stop_duration={pad:.3f}"
+        branch += f"[v{i}]"
+        lines.append(branch)
         v_labels.append(f"[v{i}]")
     lines.append("".join(v_labels) + f"concat=n={n}:v=1:a=0[vconcat]")
 
@@ -274,8 +310,14 @@ def _assemble_single_pass(original_video, tts_segments, srt_path, output_video_p
     if not no_subs and os.path.exists(srt_path):
         sub_filter = get_ffmpeg_compatible_subtitles_filter(srt_path)
 
+    source_duration = get_duration(original_video)
+    if source_duration <= 0:
+        logutil.warn("⚠️ [render] Không đo được thời lượng video gốc — bỏ qua bước bù khung hình cuối "
+                      "khi thoại TTS vượt quá footage còn lại (hiếm khi cần, nhưng nếu có thể xảy ra "
+                      "lệch đồng bộ ở gần cuối video).")
+
     filter_script_text, video_out_label = _build_single_pass_filter_script(
-        tts_segments, fps, sub_filter, bgm_path, bgm_volume, bgm_loop, total_duration,
+        tts_segments, fps, sub_filter, bgm_path, bgm_volume, bgm_loop, total_duration, source_duration,
     )
 
     filter_script_path = config.TEMP_DIR / "single_pass_filter.txt"
@@ -307,14 +349,34 @@ def _assemble_single_pass(original_video, tts_segments, srt_path, output_video_p
 # ============================================================
 
 def _cut_segment(job):
-    idx, video_path, start, duration, out_path, encoder, crf, preset, fps = job
+    idx, video_path, start, duration, out_path, encoder, crf, preset, fps, source_duration = job
+    start = max(start, 0.0)
+    req_dur = max(duration, 0.05)
+
+    # Cùng logic sửa lỗi đồng bộ như ở chế độ single-pass (xem giải thích
+    # chi tiết trong _build_single_pass_filter_script): nếu video gốc không
+    # còn đủ footage cho tới start+req_dur, KHÔNG để đoạn cắt ra ngắn hơn
+    # audio TTS tương ứng — bù phần thiếu bằng cách lặp khung hình cuối
+    # (tpad), để mọi đoạn cắt ra LUÔN khớp CHÍNH XÁC thời lượng cần thiết.
+    if source_duration and source_duration > 0:
+        start = min(start, max(source_duration - 0.05, 0.0))
+        avail = max(source_duration - start, 0.0)
+    else:
+        avail = req_dur
+    clip_dur = max(min(req_dur, avail), 0.05)
+    pad = max(0.0, req_dur - clip_dur)
+
+    vf = f"fps={fps}"
+    if pad > 0.02:
+        vf += f",tpad=stop_mode=clone:stop_duration={pad:.3f}"
+
     cmd = [
         "ffmpeg", "-y",
-        "-ss", f"{max(start, 0):.3f}",
+        "-ss", f"{start:.3f}",
         "-i", str(video_path),
-        "-t", f"{max(duration, 0.05):.3f}",
+        "-t", f"{clip_dur:.3f}",
         "-an",
-        "-vf", f"fps={fps}",
+        "-vf", vf,
         "-pix_fmt", "yuv420p",
     ] + _encoder_args(encoder, crf, preset) + [
         "-movflags", "+faststart",
@@ -345,10 +407,16 @@ def _cut_all_segments_parallel(original_video, tts_segments, seg_dir, encoder, c
         # NVENC giới hạn số phiên encode đồng thời trên nhiều GPU tiêu dùng.
         max_workers = min(max_workers, 3)
 
+    source_duration = get_duration(original_video)
+    if source_duration <= 0:
+        logutil.warn("⚠️ [render] Không đo được thời lượng video gốc — bỏ qua bước bù khung hình cuối "
+                      "cho các đoạn cắt vượt quá footage còn lại.")
+
     jobs = []
     for idx, seg in enumerate(tts_segments):
         out_path = seg_dir / f"seg_{idx:05d}.mp4"
-        jobs.append((idx, original_video, seg["start"], seg["duration"], out_path, encoder, crf, preset, fps))
+        jobs.append((idx, original_video, seg["start"], seg["duration"], out_path, encoder, crf, preset, fps,
+                     source_duration))
 
     logutil.stage(f"[render] Giai đoạn 1/3: Cắt {n} đoạn video song song ({max_workers} luồng, encoder={encoder})...")
     t0 = time.time()
