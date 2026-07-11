@@ -29,6 +29,13 @@ api_key = ""
 # câu sáo rỗng, giữ mạch truyện xuyên suốt). Tốn thêm vài lần gọi LLM text
 # (rẻ) nhưng cải thiện chất lượng recap rõ rệt. Tắt nếu muốn tiết kiệm tối đa.
 polish_enabled = true
+# Trần mềm thời lượng video đích (phút). 0 = tắt, giữ nguyên kịch bản dài
+# bao nhiêu tuỳ nội dung.
+target_minutes = 20.0
+# "Tốc độ gửi block": độ trễ (giây) chèn giữa MỖI lần gọi API khi soạn kịch
+# bản theo block (text/vision) và bước polish. Giảm để soạn nhanh hơn (dễ
+# dính rate-limit 429 hơn với key free tier); tăng nếu hay bị lỗi 429.
+block_throttle_seconds = 2.5
 
 [director]
 # "AI truong nhom": tu quyet dinh doan nao chi can transcript (re, nhanh) va
@@ -39,8 +46,14 @@ density_threshold = 3.0
 silence_ratio_threshold = 0.6
 max_vision_block_seconds = 40.0
 max_text_block_seconds = 300.0
-frames_per_block = 3
+# Số khung hình gửi kèm mỗi block vision. Mặc định 2: 1 khung gần đầu + 1
+# khung gần cuối block để model SO SÁNH được thay đổi giữa 2 thời điểm
+# (hiểu ngữ cảnh/diễn biến tốt hơn so với việc chỉ xem 1 ảnh tĩnh).
+frames_per_block = 2
 frame_max_width = 512
+# Tỉ lệ lùi vào từ 2 mép block khi chọn vị trí khung hình (0.15 = 15%-85%).
+# Giảm xuống để 2 khung cách xa nhau hơn nữa (gần sát 2 đầu block).
+frame_edge_margin = 0.15
 confirm_with_llm = true
 force_vision_first_scene = true
 max_vision_ratio = 0.35
@@ -48,6 +61,14 @@ max_vision_ratio = 0.35
 [tts_service]
 provider = "edge"
 voice_vi = "vi-VN-HoaiMyNeural"
+# Tốc độ đọc, ví dụ "+5%" nhanh hơn 5%, "-10%" chậm hơn 10%.
+rate = "+0%"
+# Số lượt gọi TTS song song tối đa.
+max_concurrent = 4
+
+[subtitle]
+# Bật/tắt việc gắn phụ đề (SRT) vào video khi render.
+enabled = true
 
 [scene_detect]
 # "content" = PySceneDetect (chính xác, chậm, cần CPU/GPU)
@@ -64,11 +85,19 @@ output_format = "json"
 # CRF càng thấp càng nét (file nặng hơn). 18-20 là mức "gần như lossless"
 # phù hợp để đăng YouTube (YouTube sẽ nén lại một lần nữa phía server).
 crf = 20
-# Preset libx264: "medium"/"slow" nén hiệu quả hơn "fast" ở cùng crf. Vì
-# giờ các đoạn video được cắt SONG SONG đa luồng nên có thể để "medium"
-# mà vẫn không lâu hơn bản cũ chạy "fast" đơn luồng.
+# Preset libx264: "medium"/"slow" nén hiệu quả hơn "fast" ở cùng crf, nhưng
+# chậm hơn. Bỏ qua nếu dùng GPU/NVENC.
 preset = "medium"
-# Số luồng cắt song song. 0 = tự động theo số nhân CPU máy bạn.
+# "single_pass" (mặc định, KHUYẾN NGHỊ cho máy yếu): 1 tiến trình ffmpeg
+#   DUY NHẤT chạy tuần tự hết timeline giống Premiere export 1 lượt — nhẹ
+#   CPU/RAM, không mở nhiều tiến trình cùng lúc, và nhanh hơn vì chỉ encode
+#   video ĐÚNG 1 LẦN (không phải cắt-rồi-mux-lại 2 lần khi có phụ đề).
+# "segmented" (bản cũ): cắt từng đoạn song song đa luồng rồi ghép + mux
+#   riêng — có thể nhanh hơn nữa trên máy nhiều nhân CPU muốn tận dụng tối
+#   đa song song hoá. Hệ thống cũng tự lùi về chế độ này nếu single_pass lỗi.
+mode = "single_pass"
+# Số luồng cắt song song, CHỈ áp dụng khi mode = "segmented". 0 = tự động
+# theo số nhân CPU máy bạn.
 max_parallel_segments = 0
 # Để trống "" để hệ thống tự dò GPU NVIDIA (NVENC) và dùng nếu có, tự
 # lùi về CPU (libx264) nếu không có. Có thể ép cứng "libx264" hoặc

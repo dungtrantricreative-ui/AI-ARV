@@ -34,7 +34,9 @@ def _sanitize_script(script):
 # Độ trễ (giây) chèn sau MỖI block kịch bản (dù thành công hay lỗi) để giữ
 # nhịp độ gọi API trong giới hạn tier hiện tại, tránh bị Cerebras/Gemma (hoặc
 # provider LLM/vision khác) khoá tạm thời do gọi quá nhanh (lỗi 429).
-API_THROTTLE_SEC = 2.5
+# Giờ đọc từ config ([script] block_throttle_seconds trong config.toml) để
+# chỉnh "tốc độ gửi block" mà không cần sửa code — xem config.py.
+API_THROTTLE_SEC = config.SCRIPT_BLOCK_THROTTLE_SEC
 
 # Số ký tự tối đa giữ lại làm "bối cảnh truyện đã kể" truyền sang block kế
 # tiếp. Đây là phần cốt lõi để sửa lỗi AI quên mạch truyện giữa các block.
@@ -311,11 +313,15 @@ def _generate_vision_block(block, transcript, video_path, frames_dir, tag, story
 
 {_story_context_block(story_so_far)}
 
-Bạn được xem {len(frames)} khung hình đại diện, trích đều nhau từ đoạn phim ÍT/KHÔNG CÓ THOẠI, từ giây
-{block['start']:.1f} đến {block['end']:.1f} (so với video gốc). Hãy nhìn các khung hình để HIỂU chuyện
-gì đang xảy ra — nhân vật nào, đang làm gì, cảm xúc/mục đích là gì — rồi kể lại đúng tinh thần của
-STYLE GUIDE ở trên. TUYỆT ĐỐI không liệt kê những gì nhìn thấy trong ảnh (không mô tả bối cảnh, ánh
-sáng, bố cục, màu sắc, góc máy) — chỉ dùng hình ảnh để suy ra diễn biến rồi kể lại bằng lời văn tự nhiên.
+Bạn được xem {len(frames)} khung hình đại diện, lấy CÀNG XA NHAU CÀNG TỐT về thời điểm trong đoạn phim
+ÍT/KHÔNG CÓ THOẠI này (khung đầu gần lúc {block['start']:.1f}s, khung cuối gần lúc {block['end']:.1f}s
+— so với video gốc), theo ĐÚNG THỨ TỰ THỜI GIAN. Đây KHÔNG phải 1 tấm ảnh tĩnh — hãy SO SÁNH khung đầu
+với khung cuối để suy ra ĐÃ CÓ CHUYỆN GÌ XẢY RA GIỮA 2 THỜI ĐIỂM ĐÓ (ai vừa xuất hiện/biến mất, tư thế/
+vị trí/biểu cảm/bối cảnh thay đổi ra sao, có hành động/di chuyển gì không) — đó chính là diễn biến cần
+kể, không phải mô tả từng khung riêng lẻ. Hãy nhìn để HIỂU chuyện gì đang xảy ra — nhân vật nào, đang
+làm gì, cảm xúc/mục đích là gì — rồi kể lại đúng tinh thần của STYLE GUIDE ở trên. TUYỆT ĐỐI không liệt
+kê những gì nhìn thấy trong ảnh (không mô tả bối cảnh, ánh sáng, bố cục, màu sắc, góc máy) — chỉ dùng
+hình ảnh để suy ra diễn biến rồi kể lại bằng lời văn tự nhiên.
 
 Thoại nghe được trong đoạn này (nếu có, có thể rất ít hoặc không có):
 {t_block if t_block.strip() else "(không có thoại)"}

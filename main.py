@@ -187,18 +187,13 @@ def run_render_flow():
 def main():
     parser = argparse.ArgumentParser(description="AI-ARV Agent Mode")
     sub = parser.add_subparsers(dest="command")
-    sub.add_parser("setup")
-    sub.add_parser("download").add_argument("url")
-    sub.add_parser("prepare").add_argument("video_path", nargs="?")
-    sub.add_parser("render")
+    sub.add_parser("render", help="Render trực tiếp từ script_final.json (hoặc script_draft.json) đã có sẵn.")
 
     args = parser.parse_args()
     if not args.command:
         smart_agent_mode()
     elif args.command == "render":
         run_render_flow()
-    else:
-        pass
 
 if __name__ == "__main__":
     main()

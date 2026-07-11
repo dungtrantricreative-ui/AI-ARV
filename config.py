@@ -86,6 +86,11 @@ SCENE_OUTPUT_FORMAT = _get("scene_detect", "output_format", "json")  # "json" | 
 
 # --- Script polish (bước biên tập lại kịch bản cho mạch lạc, xem script_gen.py) ---
 SCRIPT_POLISH_ENABLED = bool(_get("script", "polish_enabled", True))
+# Độ trễ (giây) chèn giữa MỖI lần gọi API khi sinh kịch bản theo block (director
+# text/vision) và bước polish — đây chính là "tốc độ gửi block". Giảm xuống để
+# soạn kịch bản nhanh hơn (rủi ro dễ dính rate-limit 429 hơn với key free tier);
+# tăng lên nếu hay bị lỗi 429. 0 = gửi liên tục không chờ.
+SCRIPT_BLOCK_THROTTLE_SEC = float(_get("script", "block_throttle_seconds", 2.5))
 # Thời lượng video đích (phút), dùng để tính ngân sách lời bình/block.
 SCRIPT_TARGET_MINUTES = float(_get("script", "target_minutes", 20.0))
 # Số phút ĐẦU kịch bản (theo ref_start) được BẢO VỆ khỏi bước cắt giảm cuối
@@ -102,8 +107,15 @@ DIRECTOR_DENSITY_THRESHOLD = float(_get("director", "density_threshold", 3.0))
 DIRECTOR_SILENCE_RATIO_THRESHOLD = float(_get("director", "silence_ratio_threshold", 0.6))
 DIRECTOR_MAX_VISION_BLOCK_SEC = float(_get("director", "max_vision_block_seconds", 40.0))
 DIRECTOR_MAX_TEXT_BLOCK_SEC = float(_get("director", "max_text_block_seconds", 300.0))
-DIRECTOR_FRAMES_PER_BLOCK = int(_get("director", "frames_per_block", 3))
+DIRECTOR_FRAMES_PER_BLOCK = int(_get("director", "frames_per_block", 2))
 DIRECTOR_FRAME_MAX_WIDTH = int(_get("director", "frame_max_width", 512))
+# Tỉ lệ "lùi vào trong" tính từ 2 đầu mép block khi chọn vị trí khung hình,
+# vd 0.15 = khung đầu tiên lấy ở mốc 15% thời lượng block, khung cuối lấy ở
+# mốc 85% -> 2 khung hình càng CÁCH XA NHAU về thời điểm càng giúp model
+# vision so sánh được sự thay đổi (chuyển động, biểu cảm, bối cảnh) giữa 2
+# thời điểm khác nhau trong cùng 1 câu thoại/đoạn, thay vì 2 khung dồn gần
+# giữa block trông gần như giống hệt nhau (ít thêm thông tin ngữ cảnh).
+DIRECTOR_FRAME_EDGE_MARGIN = float(_get("director", "frame_edge_margin", 0.15))
 DIRECTOR_CONFIRM_WITH_LLM = bool(_get("director", "confirm_with_llm", True))
 DIRECTOR_FORCE_VISION_FIRST_SCENE = bool(_get("director", "force_vision_first_scene", True))
 DIRECTOR_MAX_VISION_RATIO = float(_get("director", "max_vision_ratio", 0.35))
@@ -141,12 +153,20 @@ SRT_OUTLINE_WIDTH = 2
 # với mắt thường, phù hợp để đăng YouTube (YouTube sẽ nén lại lần nữa).
 RENDER_CRF = int(_get("render", "crf", 20))
 # Preset cho libx264 (bỏ qua nếu dùng GPU/NVENC): chậm hơn = nén hiệu quả
-# hơn (chất lượng/dung lượng tốt hơn ở cùng crf), nhưng lâu hơn. Vì giờ các
-# đoạn được cắt SONG SONG (đa luồng), có thể dùng preset chất lượng cao hơn
-# ("medium"/"slow") mà vẫn không chậm hơn bản cũ chạy đơn luồng "fast".
+# hơn (chất lượng/dung lượng tốt hơn ở cùng crf), nhưng lâu hơn.
 RENDER_PRESET = _get("render", "preset", "medium")
-# Số luồng cắt song song ở giai đoạn 1. 0 = tự động (bằng số nhân CPU, tối
-# đa 32). Giảm số này nếu máy yếu/ít RAM và bị treo khi render.
+# "single_pass" (mặc định, MỚI) = render kiểu Premiere: 1 tiến trình ffmpeg
+#   DUY NHẤT chạy tuần tự hết timeline (trim + ghép + trộn audio + phụ đề
+#   trong CÙNG 1 lần chạy), chỉ decode/encode video ĐÚNG 1 LẦN. Nhẹ CPU/RAM
+#   hơn nhiều cho máy yếu vì không phải mở hàng chục tiến trình ffmpeg cùng
+#   lúc, và nhanh hơn nhiều vì không có bước "cắt riêng rồi mux lại" (giảm
+#   1 lượt re-encode so với bản cũ khi có bật phụ đề).
+# "segmented" (CŨ) = cắt từng đoạn song song đa luồng rồi ghép + mux riêng
+#   (xem giải thích ở đầu sync_assemble.py) — có thể bật lại nếu máy nhiều
+#   nhân/mạnh và muốn tận dụng tối đa CPU, hoặc dùng làm phương án dự phòng.
+RENDER_MODE = _get("render", "mode", "single_pass")
+# Số luồng cắt song song ở chế độ "segmented". 0 = tự động (bằng số nhân
+# CPU, tối đa 32). Giảm số này nếu máy yếu/ít RAM và bị treo khi render.
 RENDER_MAX_WORKERS = int(_get("render", "max_parallel_segments", 0))
 # Ép cứng encoder thay vì tự dò GPU: "" (tự dò NVENC, fallback libx264),
 # "libx264" (chỉ CPU), hoặc "h264_nvenc" (chỉ GPU NVIDIA).

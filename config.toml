@@ -19,6 +19,7 @@ api_key = ""
 [script]
 polish_enabled = true
 target_minutes = 30.0
+block_throttle_seconds = 0.3
 
 [director]
 enabled = true
@@ -28,6 +29,7 @@ max_vision_block_seconds = 40.0
 max_text_block_seconds = 600.0
 frames_per_block = 2
 frame_max_width = 512
+frame_edge_margin = 0.15
 confirm_with_llm = true
 force_vision_first_scene = true
 max_vision_ratio = 0.35
@@ -49,6 +51,7 @@ interval_seconds = 5.0
 output_format = "json"
 
 [render]
+mode = "single_pass"
 preset = "faster"
 crf = 19
 max_parallel_segments = 0

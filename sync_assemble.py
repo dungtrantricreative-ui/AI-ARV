@@ -2,35 +2,49 @@
 sync_assemble.py — Ghép video + giọng đọc (TTS) + phụ đề + nhạc nền thành
 file recap cuối cùng.
 
-THIẾT KẾ MỚI (so với bản cũ dùng 1 filter_complex khổng lồ cho toàn bộ video):
---------------------------------------------------------------------------
-Bản cũ trim từng đoạn video bằng filter `trim=` bên trong MỘT filter_complex
-duy nhất rồi concat tất cả trong cùng 1 tiến trình ffmpeg. Với phim dài có
-hàng trăm dòng thoại, đó là một filter graph khổng lồ chạy ĐƠN LUỒNG, không
-có log tiến trình (chỉ biết kết quả sau khi xong), và một lỗi ở giữa graph
-có thể làm hỏng toàn bộ.
+CHẾ ĐỘ MẶC ĐỊNH — "single_pass" (kiểu Premiere xuất timeline 1 lượt)
+--------------------------------------------------------------------
+Đây là chế độ MẶC ĐỊNH (config [render] mode = "single_pass"). Toàn bộ pipeline
+chỉ chạy ĐÚNG 1 TIẾN TRÌNH FFMPEG DUY NHẤT, xử lý tuần tự hết timeline giống
+cách Premiere export 1 lần: trim từng đoạn khớp với từng dòng lời bình, ghép
+lại, trộn audio TTS + nhạc nền, và burn phụ đề (nếu bật) — TẤT CẢ trong cùng
+1 lần chạy ffmpeg, source video chỉ bị DECODE 1 LẦN DUY NHẤT và ENCODE 1 LẦN
+DUY NHẤT (thay vì cắt-rồi-mux lại làm 2 lần encode như trước khi có phụ đề).
 
-Bản này chia render thành 3 giai đoạn, tối ưu cho cả TỐC ĐỘ lẫn CHẤT LƯỢNG:
+Vì sao đổi sang chế độ này: chế độ cũ (xem "segmented" bên dưới) mở song song
+hàng chục tiến trình ffmpeg cùng lúc để cắt từng đoạn — trên máy nhiều nhân
+CPU/RAM thì nhanh, nhưng với máy YẾU (ít nhân, ít RAM) việc mở hàng chục tiến
+trình ffmpeg đồng thời gây tranh chấp CPU/RAM/đĩa nặng nề, có thể treo máy.
+Single-pass chỉ có 1 tiến trình, dùng tài nguyên ổn định, dễ đoán, và NHANH
+HƠN tổng thể vì bỏ hẳn được 1 lượt re-encode (không còn "cắt rồi mux" 2 lần).
 
+Vẫn giữ ĐẦY ĐỦ log tiến trình real-time (%, tốc độ, ETA) như bản cũ (dùng lại
+_run_ffmpeg_logged), và vẫn giữ NGUYÊN cách tính đồng bộ audio/phụ đề: thời
+lượng mỗi đoạn hình vẫn khớp CHÍNH XÁC với thời lượng file audio TTS tương ứng
+(seg["duration"]), SRT vẫn được tạo lại từ đúng các mốc thời gian TTS thực tế
+(update_srt_with_native_duration) — không có gì thay đổi ở phần đồng bộ.
+
+Nếu tiến trình single-pass lỗi (vd video nguồn hỏng giữa file khiến ffmpeg
+dừng đột ngột), hệ thống tự động LÙI VỀ chế độ "segmented" bên dưới để vẫn
+ra được video thay vì render thất bại hoàn toàn.
+
+CHẾ ĐỘ DỰ PHÒNG — "segmented" (bản cũ, có thể bật lại qua config)
+------------------------------------------------------------------
   Giai đoạn 1 — CẮT SONG SONG: mỗi đoạn video (khớp với 1 dòng lời bình)
     được cắt bằng 1 tiến trình ffmpeg riêng, chạy song song trên nhiều lõi
-    CPU (hoặc GPU nếu có). Việc này tận dụng hết phần cứng thay vì 1 luồng
-    duy nhất xử lý tuần tự -> nhanh hơn đáng kể trên máy nhiều nhân.
-    Nếu 1 đoạn lỗi, thử cắt lại; nếu vẫn lỗi, chèn khung hình đen đúng thời
-    lượng đó thay vì bỏ đoạn — để âm thanh (lời đọc) và hình ảnh KHÔNG bị
-    trôi lệch nhau ở các đoạn phía sau.
-
+    CPU (hoặc GPU nếu có). Nếu 1 đoạn lỗi, thử cắt lại; nếu vẫn lỗi, chèn
+    khung hình đen đúng thời lượng đó thay vì bỏ đoạn — để âm thanh (lời
+    đọc) và hình ảnh KHÔNG bị trôi lệch nhau ở các đoạn phía sau.
   Giai đoạn 2 — GHÉP: nối các đoạn đã cắt bằng concat demuxer (`-c copy`,
     không re-encode) — gần như tức thời vì không phải xử lý pixel nào cả.
-
   Giai đoạn 3 — TRỘN ÂM THANH + PHỤ ĐỀ: ghép audio TTS + nhạc nền, và CHỈ
-    khi cần gắn phụ đề mới re-encode lại phần hình (vì burn phụ đề bắt
-    buộc phải render lại pixel). Nếu tắt phụ đề, video được copy thẳng
-    (không nén lại lần 2) -> vừa nhanh vừa giữ nguyên chất lượng gốc từ
-    giai đoạn 1.
+    khi cần gắn phụ đề mới re-encode lại phần hình. Nếu tắt phụ đề, video
+    được copy thẳng (không nén lại lần 2).
+  Phù hợp cho máy nhiều nhân CPU muốn tận dụng tối đa song song hoá, hoặc
+  dùng làm phương án dự phòng khi single-pass thất bại.
 
-Toàn bộ 3 giai đoạn đều log tiến trình chi tiết (%, tốc độ, ETA) ra console
-và vào file `workdir/render.log` để theo dõi/debug khi render video dài.
+Toàn bộ đều log tiến trình chi tiết (%, tốc độ, ETA) ra console và vào file
+`workdir/render.log` để theo dõi/debug khi render video dài.
 
 GPU: hệ thống tự dò xem máy có NVIDIA NVENC không; nếu có sẽ dùng để tăng
 tốc encode, nếu không sẽ dùng libx264 (CPU) như bình thường. Có thể ép cứng
@@ -190,6 +204,104 @@ def _run_ffmpeg_logged(cmd: list, total_duration: float, stage_label: str, log_p
         return ok
 
 
+# ============================================================
+#  CHẾ ĐỘ MẶC ĐỊNH — SINGLE-PASS (kiểu Premiere: 1 lượt, tuần tự)
+# ============================================================
+#
+# Ý tưởng: dùng filter `trim` nhiều lần trên CÙNG 1 input gốc [0:v] (ffmpeg
+# tự động "split" ngầm khi 1 pad được tham chiếu nhiều lần trong filter
+# graph) rồi `concat` lại — nguồn chỉ bị decode tuần tự đúng 1 lượt từ đầu
+# đến cuối, mỗi khung hình được "phát" cho đúng nhánh trim đang cần nó rồi
+# bị các nhánh khác bỏ qua, nên KHÔNG tốn thêm bộ nhớ hay decode lại nhiều
+# lần. Audio TTS + nhạc nền + burn phụ đề được trộn NGAY trong cùng lần
+# chạy này -> chỉ 1 lần encode duy nhất cho toàn bộ video.
+#
+# Toàn bộ filter graph được ghi ra 1 file (-filter_complex_script) thay vì
+# truyền thẳng qua tham số dòng lệnh, để tránh giới hạn độ dài command-line
+# của hệ điều hành khi phim có hàng trăm dòng thoại.
+
+def _build_single_pass_filter_script(tts_segments, fps, sub_filter, bgm_path, bgm_volume, bgm_loop, total_duration):
+    n = len(tts_segments)
+    lines = []
+
+    # --- Nhánh hình: trim từng đoạn từ input gốc [0:v] rồi concat lại ---
+    v_labels = []
+    for i, seg in enumerate(tts_segments):
+        start = max(seg["start"], 0.0)
+        end = start + max(seg["duration"], 0.05)
+        lines.append(
+            f"[0:v]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS,fps={fps}[v{i}]"
+        )
+        v_labels.append(f"[v{i}]")
+    lines.append("".join(v_labels) + f"concat=n={n}:v=1:a=0[vconcat]")
+
+    # --- Nhánh audio: input 1..n là các file TTS, ghép tuần tự đúng thứ tự ---
+    a_labels = []
+    for i in range(n):
+        lines.append(f"[{i + 1}:a]asplit=1[a{i}]")
+        a_labels.append(f"[a{i}]")
+    lines.append("".join(a_labels) + f"concat=n={n}:v=0:a=1[a_tts_mix]")
+
+    if bgm_path and os.path.exists(bgm_path):
+        bgm_idx = n + 1
+        bgm_duration = get_duration(bgm_path)
+        if bgm_loop and bgm_duration > 0 and bgm_duration < total_duration:
+            lines.append(f"[{bgm_idx}:a]aloop=loop=-1:size=2e9[a_bgm_raw]")
+            lines.append(f"[a_bgm_raw]volume={bgm_volume}[a_bgm]")
+        else:
+            lines.append(f"[{bgm_idx}:a]volume={bgm_volume}[a_bgm]")
+        lines.append("[a_tts_mix][a_bgm]amix=inputs=2:duration=first:normalize=0[aout]")
+    else:
+        lines.append("[a_tts_mix]asplit=1[aout]")
+
+    # --- Phụ đề (nếu bật): burn trực tiếp lên [vconcat] ---
+    if sub_filter:
+        lines.append(f"[vconcat]{sub_filter}[vfinal]")
+        video_out_label = "[vfinal]"
+    else:
+        video_out_label = "[vconcat]"
+
+    return ";\n".join(lines) + "\n", video_out_label
+
+
+def _assemble_single_pass(original_video, tts_segments, srt_path, output_video_path, bgm_path, bgm_volume,
+                           bgm_loop, no_subs, encoder, crf, preset, fps, total_duration, log_path) -> bool:
+    n = len(tts_segments)
+    logutil.stage(f"[render] Chế độ single-pass (kiểu Premiere): 1 tiến trình ffmpeg xử lý tuần tự "
+                  f"{n} đoạn thoại, tổng thời lượng ~{total_duration / 60:.1f} phút...")
+
+    sub_filter = None
+    if not no_subs and os.path.exists(srt_path):
+        sub_filter = get_ffmpeg_compatible_subtitles_filter(srt_path)
+
+    filter_script_text, video_out_label = _build_single_pass_filter_script(
+        tts_segments, fps, sub_filter, bgm_path, bgm_volume, bgm_loop, total_duration,
+    )
+
+    filter_script_path = config.TEMP_DIR / "single_pass_filter.txt"
+    filter_script_path.write_text(filter_script_text, encoding="utf-8")
+
+    inputs = ["-i", str(original_video)]
+    for seg in tts_segments:
+        inputs.extend(["-i", seg["audio_path"]])
+    if bgm_path and os.path.exists(bgm_path):
+        inputs.extend(["-i", str(bgm_path)])
+
+    cmd = ["ffmpeg", "-y"] + inputs + ["-filter_complex_script", str(filter_script_path)]
+    cmd += ["-map", video_out_label, "-map", "[aout]"]
+    cmd += _encoder_args(encoder, crf, preset)
+    cmd += ["-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(output_video_path)]
+
+    stage_label = "Single-pass (trim + ghép + trộn audio" + (" + burn phụ đề" if sub_filter else "") + " + xuất file)"
+    ok = _run_ffmpeg_logged(cmd, total_duration, stage_label, log_path)
+    if not ok:
+        logutil.warn(f"⚠️ [render] Single-pass thất bại. Xem chi tiết tại {log_path}. "
+                      f"Đang tự động lùi về chế độ 'segmented' để vẫn ra được video...")
+    return ok
+
+
+# ============================================================
+#  CHẾ ĐỘ DỰ PHÒNG — SEGMENTED (bản cũ, 3 giai đoạn)
 # ============================================================
 #  GIAI ĐOẠN 1 — CẮT SONG SONG
 # ============================================================
@@ -409,9 +521,31 @@ def assemble_video_and_audio(original_video, srt_path, tts_segments, output_vide
     total_duration = sum(seg["duration"] for seg in tts_segments)
     n = len(tts_segments)
     t_start = time.time()
+    render_mode = (getattr(config, "RENDER_MODE", "single_pass") or "single_pass").lower()
     logutil.ok(f"🎬 [render] Bắt đầu dựng phim: {n} đoạn thoại, tổng thời lượng dự kiến ~{total_duration / 60:.1f} phút, "
-          f"encoder={encoder}, crf={crf}, preset={preset}. Log chi tiết: {log_path}")
+          f"encoder={encoder}, crf={crf}, preset={preset}, chế độ={render_mode}. Log chi tiết: {log_path}")
 
+    ok = False
+    if render_mode != "segmented":
+        ok = _assemble_single_pass(
+            original_video, tts_segments, srt_path, output_video_path, bgm_path, bgm_volume, bgm_loop,
+            no_subs, encoder, crf, preset, fps, total_duration, log_path,
+        )
+
+    if not ok:
+        ok = _assemble_segmented(
+            original_video, tts_segments, srt_path, output_video_path, bgm_path, bgm_volume, bgm_loop,
+            no_subs, encoder, crf, preset, fps, width, height, total_duration, log_path,
+        )
+
+    if ok:
+        logutil.ok(f"✅ [render] Hoàn tất trong {time.time() - t_start:.0f}s. Log chi tiết tại: {log_path}")
+    return ok
+
+
+def _assemble_segmented(original_video, tts_segments, srt_path, output_video_path, bgm_path, bgm_volume, bgm_loop,
+                         no_subs, encoder, crf, preset, fps, width, height, total_duration, log_path) -> bool:
+    """Chế độ dự phòng (bản cũ, 3 giai đoạn) — xem docstring đầu file."""
     seg_dir = config.TEMP_DIR / "render_segments"
     if seg_dir.exists():
         shutil.rmtree(seg_dir, ignore_errors=True)
@@ -436,8 +570,6 @@ def assemble_video_and_audio(original_video, srt_path, tts_segments, output_vide
     finally:
         shutil.rmtree(seg_dir, ignore_errors=True)
 
-    if ok:
-        logutil.ok(f"✅ [render] Hoàn tất trong {time.time() - t_start:.0f}s. Log chi tiết tại: {log_path}")
     return ok
 
 
