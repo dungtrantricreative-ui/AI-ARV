@@ -8,7 +8,7 @@ api_key = "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"
 provider = "openai"
 base_url = "https://api.cerebras.ai/v1"
 model = "gemma-4-31b"
-api_key = "csk-vdmwee9e6kpmpyxdcfkvrxrcyhekh5w6vk39nwfc9wxmpkhk"
+api_key = "csk-8cxk8fkmx9rx488e92mnwpk2pc4jj9r4vdj8hxjrjt5n88vc"
 
 [vision_service]
 provider = ""
