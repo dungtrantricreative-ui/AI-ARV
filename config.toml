@@ -18,7 +18,7 @@ api_key = ""
 
 [script]
 polish_enabled = true
-block_throttle_seconds = 0.3
+block_throttle_seconds = 1
 
 # ============================================================
 #  CHẾ ĐỘ RECAP — 3 mức độ, mỗi mức có thuật toán riêng (xem chi tiết
