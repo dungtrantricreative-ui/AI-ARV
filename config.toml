@@ -2,13 +2,13 @@
 provider = "groq"
 base_url = "https://api.groq.com"
 model = "whisper-large-v3"
-api_key = "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"
+api_key = "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"
 
 [llm_service]
 provider = "openai"
-base_url = "https://api.cerebras.ai/v1"
-model = "gemma-4-31b"
-api_key = "csk-vdmwee9e6kpmpyxdcfkvrxrcyhekh5w6vk39nwfc9wxmpkhk"
+base_url = "https://api.mistral.ai/v1"
+model = "mistral-large-latest"
+api_key = "MMf1hssyifZGn1EvRKhuFNyDsV2ucB2M"
 
 [vision_service]
 provider = ""
