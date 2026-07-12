@@ -1,8 +1,8 @@
 [asr_service]
 provider = "groq"
-base_url = "https://api.groq.com"
-model = "whisper-large-v3"
-api_key = "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"
+base_url = "https://api.deepgram.com"
+model = "nova-2"
+api_key = "ba1897efd1f5d0f8ece70bdc0b9617fd5ca4a760"
 
 [llm_service]
 provider = "openai"
@@ -34,6 +34,55 @@ recap_mode = "fast"
 
 # target_minutes: ép cứng thời lượng đích (phút), BỎ QUA tỉ lệ theo recap_mode
 # ở trên. Để 0 (mặc định) = TỰ ĐỘNG tính theo recap_mode * thời lượng phim gốc.
+target_minutes = 0.0
+
+# Tỉ lệ thời lượng đích / thời lượng phim gốc cho từng mode (chỉ dùng khi
+# target_minutes = 0 ở trên). vd fast_target_ratio = 0.125 -> phim 120 phút
+# ra recap ~15 phút.
+fast_target_ratio = 0.125
+detailed_target_ratio = 0.30
+ultra_target_ratio = 0.55
+# Chặn trên/dưới (phút) cho thời lượng đích tự động, tránh phim quá ngắn/dài
+# cho ra recap phi lý (vd phim 5 phút không nên ép recap xuống < 3 phút).
+min_target_minutes = 3.0
+max_target_minutes = 120.0
+
+[director]
+enabled = true
+density_threshold = 3.0
+silence_ratio_threshold = 0.6
+max_vision_block_seconds = 40.0
+max_text_block_seconds = 600.0
+frames_per_block = 2
+frame_max_width = 512
+frame_edge_margin = 0.15
+confirm_with_llm = true
+force_vision_first_scene = true
+max_vision_ratio = 0.35
+
+[tts_service]
+provider = "edge"
+voice_vi = "vi-VN-HoaiMyNeural"
+rate = "+10%"
+max_concurrent = 30
+
+[subtitle]
+enabled = false
+
+[scene_detect]
+method = "interval"
+threshold = 27.0
+min_duration = 1.5
+interval_seconds = 5.0
+output_format = "json"
+
+[render]
+mode = "single_pass"
+preset = "faster"
+crf = 19
+max_parallel_segments = 0
+force_encoder = ""
+auto_render = true
 target_minutes = 0.0
 
 # Tỉ lệ thời lượng đích / thời lượng phim gốc cho từng mode (chỉ dùng khi
