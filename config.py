@@ -56,6 +56,12 @@ ASR_API_KEY = _resolve_api_key(
     "asr_service", "ASR_API_KEY", ASR_PROVIDER,
     {"groq": "GROQ_API_KEY", "openai": "OPENAI_API_KEY"}
 )
+# Số chunk audio (mặc định 10 phút/chunk) được gửi phiên âm SONG SONG cùng
+# lúc. Trước đây transcribe.py gửi tuần tự từng chunk -> phim dài (nhiều
+# chunk) mất thời gian cộng dồn không cần thiết dù ASR API hỗ trợ gọi song
+# song tốt. Tăng lên nếu key trả phí/tier cao ít giới hạn; giảm về 1 nếu hay
+# gặp 429 với key free tier.
+ASR_MAX_CONCURRENT = int(_get("asr_service", "max_concurrent", 3))
 
 # LLM
 LLM_PROVIDER = _get("llm_service", "provider", "google")

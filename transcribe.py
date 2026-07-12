@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import subprocess
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import config
 import logutil
 
@@ -141,21 +142,40 @@ def transcribe_video(video_path: Path) -> list[dict]:
     # Dùng tempfile.TemporaryDirectory (tự dọn dẹp, tương thích Windows/Linux,
     # không để lại rác nếu chương trình bị ngắt giữa chừng nhờ khối try/finally
     # nội bộ của contextmanager) thay vì tự quản lý đường dẫn tạm bằng tay.
-    segments: list[dict] = []
     with tempfile.TemporaryDirectory(prefix="arv_chunks_", dir=str(config.TEMP_DIR)) as tmp_dir:
         chunk_dir = Path(tmp_dir)
         chunks = _split_audio_chunks(audio_path, chunk_dir)
         n_chunks = len(chunks)
+        results = [None] * n_chunks
 
-        for i, chunk in enumerate(chunks, 1):
+        def _do_chunk(i, chunk):
             chunk_path, offset = chunk["path"], chunk["offset"]
-            logutil.stage(f"[transcribe] Đang gửi đoạn {i}/{n_chunks} (offset +{offset:.1f}s) -> {chunk_path.name}")
-            chunk_segments = transcribe_fn(chunk_path, label=f"asr-chunk-{i}/{n_chunks}")
+            logutil.stage(f"[transcribe] Đang gửi đoạn {i + 1}/{n_chunks} (offset +{offset:.1f}s) -> {chunk_path.name}")
+            chunk_segments = transcribe_fn(chunk_path, label=f"asr-chunk-{i + 1}/{n_chunks}")
             # Đồng bộ thời gian: cộng dồn offset để khớp với video gốc.
             for seg in chunk_segments:
                 seg["start"] = round(seg.get("start", 0.0) + offset, 3)
                 seg["end"] = round(seg.get("end", 0.0) + offset, 3)
-            segments.extend(chunk_segments)
+            return chunk_segments
+
+        # Gửi tối đa ASR_MAX_CONCURRENT chunk CÙNG LÚC thay vì tuần tự từng
+        # chunk một -> giảm đáng kể thời gian chờ với phim dài (nhiều chunk
+        # 10 phút). Kết quả vẫn được ghép lại ĐÚNG THỨ TỰ thời gian gốc (theo
+        # index i) dù các chunk hoàn thành không theo thứ tự gửi đi.
+        max_workers = max(1, getattr(config, "ASR_MAX_CONCURRENT", 3))
+        if n_chunks > 1 and max_workers > 1:
+            with ThreadPoolExecutor(max_workers=min(max_workers, n_chunks)) as pool:
+                futures = {pool.submit(_do_chunk, i, chunk): i for i, chunk in enumerate(chunks)}
+                for fut in as_completed(futures):
+                    i = futures[fut]
+                    results[i] = fut.result()
+        else:
+            for i, chunk in enumerate(chunks):
+                results[i] = _do_chunk(i, chunk)
+
+        segments: list[dict] = []
+        for chunk_segments in results:
+            segments.extend(chunk_segments or [])
         # TemporaryDirectory tự xoá toàn bộ chunk khi thoát khối `with`,
         # kể cả khi có exception ở giữa vòng lặp -> không rác file tạm.
 

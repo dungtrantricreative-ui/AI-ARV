@@ -33,7 +33,7 @@ def is_valid_video(video_path: Path) -> bool:
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
         return result.returncode == 0
-    except:
+    except Exception:
         return False
 
 

@@ -31,6 +31,58 @@ def _sanitize_script(script):
             line["text"] = _strip_importance_leak(line["text"])
     return script
 
+
+# ============================================================
+#  "SỔ TAY NHÂN VẬT" (character glossary) — cơ chế trí nhớ dài hạn xuyên
+#  suốt pipeline để khắc phục lỗi kịch bản "rối, khó hiểu" khi phim có
+#  nhiều tuyến/nhiều nhân vật: vì mỗi block/chunk được sinh bằng 1 lời gọi
+#  LLM RIÊNG BIỆT, model không tự nhớ đã giới thiệu ai ở block trước, dẫn
+#  đến việc nhân vật mới bị nhắc tên suông (không giới thiệu vai trò/quan
+#  hệ) hoặc bị đổi cách gọi giữa chừng.
+#
+#  Giải pháp KHÔNG tốn thêm lệnh gọi API nào: tận dụng luôn JSON response
+#  sẵn có của bước sinh block — model được yêu cầu tự thêm trường tuỳ chọn
+#  "new_characters" vào đúng dòng lần đầu một nhân vật xuất hiện. Danh sách
+#  này được cộng dồn (dedupe theo tên) và truyền lại vào MỌI prompt sau đó
+#  (kể cả bước polish/merge) như một "danh sách nhân vật đã biết", buộc
+#  model dùng nhất quán tên gọi và bắt buộc giới thiệu khi gặp nhân vật mới.
+# ============================================================
+_NEW_CHARACTERS_KEY = "new_characters"
+
+
+def _extract_glossary_entries(lines) -> list:
+    entries = []
+    for l in lines:
+        nc = l.get(_NEW_CHARACTERS_KEY)
+        if isinstance(nc, list):
+            for item in nc:
+                if isinstance(item, str) and item.strip():
+                    entries.append(item.strip())
+    return entries
+
+
+def _strip_glossary_field(lines):
+    for l in lines:
+        l.pop(_NEW_CHARACTERS_KEY, None)
+    return lines
+
+
+def _merge_glossary(glossary_lines: list, glossary_names: set, new_entries: list) -> list:
+    for entry in new_entries:
+        name_key = entry.split(":", 1)[0].strip().lower()
+        if name_key and name_key not in glossary_names:
+            glossary_names.add(name_key)
+            glossary_lines.append(entry)
+    return glossary_lines
+
+
+_GLOSSARY_FORMAT_HINT = (
+    '- (Tuỳ chọn) Nếu dòng này là lần ĐẦU TIÊN một nhân vật mới (chưa có trong "DANH SÁCH NHÂN VẬT '
+    'ĐÃ GIỚI THIỆU" ở trên nếu có) xuất hiện, thêm trường "new_characters": mảng string dạng '
+    '"Tên: vai trò/quan hệ ngắn gọn", ví dụ ["Nicky: cậu học việc của Harry"]. Bỏ qua trường này nếu '
+    "dòng không có nhân vật mới nào."
+)
+
 # Độ trễ (giây) chèn sau MỖI block kịch bản (dù thành công hay lỗi) để giữ
 # nhịp độ gọi API trong giới hạn tier hiện tại, tránh bị Cerebras/Gemma (hoặc
 # provider LLM/vision khác) khoá tạm thời do gọi quá nhanh (lỗi 429).
@@ -336,23 +388,32 @@ def generate_script(transcript, scenes, out_path: Path, video_path: Path = None)
     print(f"[script_gen] Đang sinh kịch bản nháp — chế độ recap: {preset['label']} ({mode})...")
 
     if not config.DIRECTOR_ENABLED or not scenes:
-        script = _generate_script_legacy(transcript, scenes)
+        script, glossary_lines = _generate_script_legacy(transcript, scenes), []
     else:
-        script = _generate_script_directed(transcript, scenes, video_path, preset)
+        script, glossary_lines = _generate_script_directed(transcript, scenes, video_path, preset)
 
     script.sort(key=lambda x: x.get("ref_start", 0.0))
     script = _sanitize_script(script)
 
-    if getattr(config, "SCRIPT_POLISH_ENABLED", True) and script:
-        script = _polish_script(script)
+    # Bước GỘP DÒNG (merge pass) của chế độ "fast" đã tự viết lại câu chữ cho
+    # mạch lạc trong lúc gộp (xem _merge_cluster), nên với chế độ này ta BỎ
+    # QUA bước polish riêng để tránh 1 lượt gọi LLM dư thừa trên toàn bộ kịch
+    # bản — tiết kiệm đáng kể số lệnh gọi API/tokens/thời gian mà chất lượng
+    # câu chữ không đổi (vẫn được viết lại ở bước merge ngay sau đây). Các
+    # chế độ "detailed"/"ultra" không có merge pass nên vẫn cần polish để nối
+    # câu mạch lạc giữa các block.
+    skip_polish = bool(preset.get("enable_merge_pass"))
+    if getattr(config, "SCRIPT_POLISH_ENABLED", True) and script and not skip_polish:
+        script = _polish_script(script, glossary_lines)
         script = _sanitize_script(script)
 
     # Chế độ "fast" có thêm bước GỘP DÒNG chuyên biệt: nén nhiều dòng liền kề
-    # thành 1 dòng duy nhất (khác bước polish ở trên — polish chỉ chỉnh câu
-    # chữ, KHÔNG đổi số lượng dòng). Chạy SAU polish để câu chữ đầu vào đã
-    # mạch lạc, giúp bước gộp cho kết quả tốt hơn.
+    # THỰC SỰ CÙNG MỘT TUYẾN TRUYỆN thành 1 dòng duy nhất (xem
+    # _cluster_script_by_time — cụm bị tách mỗi khi gặp câu dẫn chuyển tuyến
+    # kiểu "Trong khi đó/Về phía..." để không gộp nhầm 2 tuyến truyện khác
+    # nhau vào 1 câu).
     if preset.get("enable_merge_pass") and script:
-        script = _merge_script_fast(script, preset.get("merge_group_seconds", 75.0))
+        script = _merge_script_fast(script, preset.get("merge_group_seconds", 75.0), glossary_lines)
         script = _sanitize_script(script)
 
     target_minutes = _resolve_target_minutes(mode, preset, scenes, video_path)
@@ -392,24 +453,33 @@ def _generate_script_directed(transcript, scenes, video_path: Path, preset: dict
         max_vision_block_sec=max_vision_block_sec,
     )
     if not blocks:
-        return _generate_script_legacy(transcript, scenes)
+        return _generate_script_legacy(transcript, scenes), []
 
     frames_dir = config.TEMP_DIR / "director_frames"
     all_lines = []
     story_so_far = ""
+    glossary_lines: list = []
+    glossary_names: set = set()
     n_blocks = len(blocks)
     for i, block in enumerate(blocks, 1):
         tag = f"{block['start']:.1f}"
         logutil.stage(f"[script_gen] Block {i}/{n_blocks}: {block['start']:.1f}s-{block['end']:.1f}s ({block['mode']})")
         try:
             if block["mode"] == "vision" and video_path is not None:
-                lines = _generate_vision_block(block, transcript, video_path, frames_dir, tag, story_so_far)
+                lines = _generate_vision_block(block, transcript, video_path, frames_dir, tag, story_so_far, glossary_lines)
             else:
-                lines = _generate_text_block(block, transcript, story_so_far)
+                lines = _generate_text_block(block, transcript, story_so_far, glossary_lines)
         except Exception as e:
             logutil.warn(f"⚠️ [script_gen] Lỗi ở block {block['start']:.1f}-{block['end']:.1f}s ({e}). "
                   f"Bỏ qua block này (thoại/hình các block khác không bị ảnh hưởng).")
             lines = []
+
+        # Cập nhật sổ tay nhân vật TRƯỚC khi tách trường new_characters khỏi
+        # từng dòng (trường này chỉ dùng nội bộ, không thuộc schema kịch bản
+        # cuối cùng nên phải xoá trước khi lưu ra file/đưa vào TTS).
+        _merge_glossary(glossary_lines, glossary_names, _extract_glossary_entries(lines))
+        _strip_glossary_field(lines)
+
         all_lines.extend(lines)
         story_so_far = _update_story_context(story_so_far, lines)
 
@@ -424,9 +494,9 @@ def _generate_script_directed(transcript, scenes, video_path: Path, preset: dict
 
     if not all_lines:
         logutil.warn("⚠️ [script_gen] Không sinh được dòng thoại nào theo director. Dùng lại cách cũ (1 lần gọi toàn bộ transcript).")
-        return _generate_script_legacy(transcript, scenes)
+        return _generate_script_legacy(transcript, scenes), []
 
-    return all_lines
+    return all_lines, glossary_lines
 
 
 def _update_story_context(story_so_far: str, new_lines, max_chars: int = STORY_CONTEXT_MAX_CHARS) -> str:
@@ -442,17 +512,28 @@ def _update_story_context(story_so_far: str, new_lines, max_chars: int = STORY_C
     return combined
 
 
-def _story_context_block(story_so_far: str) -> str:
-    if not story_so_far.strip():
-        return "(Đây là đoạn đầu tiên, chưa có diễn biến nào được kể trước đó.)"
-    return f"Tóm tắt những gì đã xảy ra TRƯỚC đoạn này (để bạn hiểu bối cảnh, không lặp lại):\n{story_so_far}"
+def _story_context_block(story_so_far: str, glossary_lines: list = None) -> str:
+    parts = []
+    if glossary_lines:
+        glossary_text = "\n".join(f"- {g}" for g in glossary_lines)
+        parts.append(
+            "DANH SÁCH NHÂN VẬT ĐÃ GIỚI THIỆU (dùng ĐÚNG tên gọi này xuyên suốt, KHÔNG đổi cách gọi "
+            "giữa chừng — vd đã gọi \"Harry\" thì đừng đổi sang \"anh chàng thợ đàn\"; nếu một nhân vật "
+            "chưa có trong danh sách này lần đầu xuất hiện trong đoạn bạn viết, PHẢI thêm 1 cụm giới "
+            "thiệu ngắn về vai trò/quan hệ của họ ngay trong câu đầu tiên nhắc tên họ):\n" + glossary_text
+        )
+    if story_so_far.strip():
+        parts.append(f"Tóm tắt những gì đã xảy ra TRƯỚC đoạn này (để bạn hiểu bối cảnh, không lặp lại):\n{story_so_far}")
+    elif not glossary_lines:
+        parts.append("(Đây là đoạn đầu tiên, chưa có diễn biến nào được kể trước đó.)")
+    return "\n\n".join(parts)
 
 
-def _generate_text_block(block, transcript, story_so_far: str = ""):
+def _generate_text_block(block, transcript, story_so_far: str = "", glossary_lines: list = None):
     t_block = _format_transcript_range(transcript, block["start"], block["end"])
     prompt = f"""{_active_style_guide()}
 
-{_story_context_block(story_so_far)}
+{_story_context_block(story_so_far, glossary_lines)}
 
 Bây giờ hãy viết tiếp lời bình cho đoạn phim từ giây {block['start']:.1f} đến {block['end']:.1f}
 (so với video gốc). Dưới đây là thoại nghe được trong đoạn này (transcript thô, CHỈ để bạn hiểu
@@ -465,6 +546,7 @@ Yêu cầu định dạng:
 - Trả về JSON array, mỗi phần tử có: ref_start (float), ref_end (float), text (string), importance (int 1-5).
 - ref_start >= {block['start']:.1f} và ref_end <= {block['end']:.1f} (phải nằm trong đoạn này).
 - Nếu đoạn này không có gì quan trọng với cốt truyện, có thể trả về mảng rỗng [] — đừng cố bịa chuyện.
+{_GLOSSARY_FORMAT_HINT}
 - Không giải thích gì thêm, chỉ trả về JSON thuần, không kèm markdown/code fence.
 
 Ví dụ định dạng (nội dung chỉ minh hoạ):
@@ -477,18 +559,18 @@ Ví dụ định dạng (nội dung chỉ minh hoạ):
     return llm_client.extract_json(raw)
 
 
-def _generate_vision_block(block, transcript, video_path, frames_dir, tag, story_so_far: str = ""):
+def _generate_vision_block(block, transcript, video_path, frames_dir, tag, story_so_far: str = "", glossary_lines: list = None):
     frames = frame_extract.extract_frames(
         video_path, block["start"], block["end"], config.DIRECTOR_FRAMES_PER_BLOCK, frames_dir, tag,
     )
     if not frames:
         logutil.warn(f"⚠️ [script_gen] Không trích được khung hình nào cho block {tag}s -> lùi về text-only.")
-        return _generate_text_block(block, transcript, story_so_far)
+        return _generate_text_block(block, transcript, story_so_far, glossary_lines)
 
     t_block = _format_transcript_range(transcript, block["start"], block["end"])
     prompt = f"""{_active_style_guide()}
 
-{_story_context_block(story_so_far)}
+{_story_context_block(story_so_far, glossary_lines)}
 
 Bạn được xem {len(frames)} khung hình đại diện, lấy CÀNG XA NHAU CÀNG TỐT về thời điểm trong đoạn phim
 ÍT/KHÔNG CÓ THOẠI này (khung đầu gần lúc {block['start']:.1f}s, khung cuối gần lúc {block['end']:.1f}s
@@ -509,6 +591,7 @@ Yêu cầu định dạng:
 - Trả về JSON array, mỗi phần tử có: ref_start (float), ref_end (float), text (string), importance (int 1-5).
 - ref_start >= {block['start']:.1f} và ref_end <= {block['end']:.1f} (phải nằm trong đoạn này).
 - Nếu đoạn này chỉ là cảnh chuyển/không quan trọng, trả về mảng rỗng [] thay vì mô tả cho có.
+{_GLOSSARY_FORMAT_HINT}
 - Không giải thích gì thêm, chỉ trả về JSON thuần, không kèm markdown/code fence.
 """
     raw = llm_client.call_vision(
@@ -546,14 +629,14 @@ def _format_transcript_range(transcript, start, end, max_characters=4000):
 #  gốc thay vì làm hỏng/làm lệch kịch bản.
 # ============================================================
 
-def _polish_script(script):
+def _polish_script(script, glossary_lines: list = None):
     logutil.stage(f"[script_gen] Biên tập lại kịch bản cho mạch lạc hơn ({len(script)} dòng)...")
     polished = []
     story_so_far = ""
     for start in range(0, len(script), POLISH_CHUNK_SIZE):
         chunk = script[start:start + POLISH_CHUNK_SIZE]
         try:
-            new_texts = _polish_chunk(chunk, story_so_far)
+            new_texts = _polish_chunk(chunk, story_so_far, glossary_lines)
         except Exception as e:
             logutil.warn(f"⚠️ [script_gen] Bước biên tập lỗi ở cụm dòng {start}-{start + len(chunk)} ({e}). "
                   f"Giữ nguyên cụm gốc.")
@@ -580,11 +663,11 @@ def _polish_script(script):
     return polished
 
 
-def _polish_chunk(chunk, story_so_far: str):
+def _polish_chunk(chunk, story_so_far: str, glossary_lines: list = None):
     numbered = "\n".join(f"{idx}: {l.get('text', '')}" for idx, l in enumerate(chunk))
     prompt = f"""{_active_style_guide()}
 
-{_story_context_block(story_so_far)}
+{_story_context_block(story_so_far, glossary_lines)}
 
 Dưới đây là {len(chunk)} câu lời bình recap đang ở dạng NHÁP, được đánh số thứ tự 0..{len(chunk) - 1},
 theo đúng thứ tự sẽ đọc lên (KHÔNG được đổi thứ tự, không được gộp/tách câu):
@@ -627,11 +710,33 @@ Ví dụ định dạng: ["câu đã biên tập 0", "câu đã biên tập 1", 
 #  cụm đó (không gộp), thà kịch bản hơi dài hơn còn hơn mất nội dung.
 # ============================================================
 
+# Các cụm dẫn dắt chuyển tuyến truyện (khớp với hướng dẫn "BẮT BUỘC câu dẫn
+# khi ĐỔI TUYẾN NHÂN VẬT" trong STYLE_GUIDE). Khi 1 dòng bắt đầu bằng 1 trong
+# các cụm này, nó đánh dấu điểm bắt đầu của MỘT TUYẾN TRUYỆN KHÁC — merge
+# pass tuyệt đối không được gộp dòng này chung với cụm đang dang dở của
+# tuyến truyện trước đó, dù chúng gần nhau về thời gian, nếu không sẽ ra
+# 1 câu lẫn lộn 2 sự kiện không liên quan (đúng lỗi "rối, khó hiểu" đã gặp).
+_THREAD_TRANSITION_MARKERS = (
+    "trong khi đó", "trong khi", "về phía", "cùng lúc này", "cùng lúc đó", "cùng lúc",
+    "quay lại với", "quay trở lại với", "trong lúc đó", "trong lúc này", "song song đó",
+    "ở một diễn biến khác", "mặt khác", "cùng thời điểm",
+)
+
+
+def _starts_new_thread(text: str) -> bool:
+    t = (text or "").strip().lower()
+    return any(t.startswith(marker) for marker in _THREAD_TRANSITION_MARKERS)
+
+
 def _cluster_script_by_time(script, group_seconds: float):
     """Chia script (đã sort theo ref_start) thành các cụm liên tiếp, mỗi cụm
-    trải dài tối đa `group_seconds` giây trên timeline gốc. Một cụm luôn có
-    ÍT NHẤT 1 dòng; cụm chỉ có 1 dòng thì merge pass sẽ tự bỏ qua (không có
-    gì để gộp)."""
+    trải dài tối đa `group_seconds` giây trên timeline gốc VÀ chỉ chứa các
+    dòng thuộc CÙNG một tuyến truyện: cụm luôn bị CẮT NGAY trước 1 dòng có
+    câu dẫn chuyển tuyến (xem _THREAD_TRANSITION_MARKERS), kể cả khi dòng đó
+    vẫn còn nằm trong cửa sổ group_seconds — vì gộp xuyên tuyến truyện là
+    nguyên nhân chính khiến kịch bản recap bị lẫn lộn, khó hiểu. Một cụm
+    luôn có ÍT NHẤT 1 dòng; cụm chỉ có 1 dòng thì merge pass sẽ tự bỏ qua
+    (không có gì để gộp)."""
     if group_seconds <= 0:
         return [script]
     clusters = []
@@ -639,7 +744,8 @@ def _cluster_script_by_time(script, group_seconds: float):
     cur_start = None
     for line in script:
         start = float(line.get("ref_start", 0.0))
-        if cur and (start - cur_start) > group_seconds:
+        new_thread = cur and _starts_new_thread(line.get("text", ""))
+        if cur and (new_thread or (start - cur_start) > group_seconds):
             clusters.append(cur)
             cur = []
         if not cur:
@@ -650,21 +756,23 @@ def _cluster_script_by_time(script, group_seconds: float):
     return clusters
 
 
-def _merge_cluster(cluster, story_so_far: str):
+def _merge_cluster(cluster, story_so_far: str, glossary_lines: list = None):
     """Gọi LLM 1 lần để nén N dòng của 1 cụm thành ĐÚNG 1 câu lời bình duy
     nhất. Trả về (text, importance) hoặc None nếu lỗi/parse hỏng."""
     numbered = "\n".join(f"{idx}: {l.get('text', '')}" for idx, l in enumerate(cluster))
     prompt = f"""{_active_style_guide()}
 
-{_story_context_block(story_so_far)}
+{_story_context_block(story_so_far, glossary_lines)}
 
 Dưới đây là {len(cluster)} câu lời bình NHÁP liên tiếp (đánh số 0..{len(cluster) - 1}, đúng thứ tự kể),
-tất cả đều nằm trong cùng một khoảng thời gian ngắn của phim và cùng phục vụ một chuỗi diễn biến:
+tất cả đều nằm trong cùng một khoảng thời gian ngắn của phim và ĐÃ ĐƯỢC LỌC TRƯỚC để chỉ thuộc CÙNG
+một tuyến truyện/chuỗi diễn biến (không có câu dẫn chuyển tuyến kiểu "Trong khi đó" ở giữa cụm):
 {numbered}
 
 Nhiệm vụ: viết lại thành ĐÚNG 1 CÂU (hoặc 1 đoạn ngắn 2-3 câu nếu thực sự cần) tóm tắt LẠI TOÀN BỘ
 {len(cluster)} câu trên theo đúng tinh thần "RECAP NHANH" ở phụ lục STYLE GUIDE — giữ đúng trình tự
-nhân quả, bỏ hết chi tiết phụ, chỉ giữ điều gì thực sự thay đổi mạch truyện.
+nhân quả, bỏ hết chi tiết phụ, chỉ giữ điều gì thực sự thay đổi mạch truyện. Giữ nguyên tên nhân vật
+đúng như trong "DANH SÁCH NHÂN VẬT ĐÃ GIỚI THIỆU" ở trên (nếu có) — không đổi cách gọi.
 
 Trả về CHÍNH XÁC 1 JSON object dạng:
 {{"text": "câu đã gộp", "importance": <int 1-5, lấy mức quan trọng cao nhất phù hợp với nội dung đã gộp>}}
@@ -686,10 +794,10 @@ Không giải thích gì thêm, chỉ trả JSON thuần, không kèm markdown/c
     return text, importance
 
 
-def _merge_script_fast(script, group_seconds: float):
+def _merge_script_fast(script, group_seconds: float, glossary_lines: list = None):
     clusters = _cluster_script_by_time(script, group_seconds)
     logutil.stage(f"[script_gen] Gộp dòng (chế độ NHANH): {len(script)} dòng nháp -> {len(clusters)} cụm "
-                  f"(~{group_seconds:.0f}s/cụm)...")
+                  f"(~{group_seconds:.0f}s/cụm, tách theo tuyến truyện)...")
     merged = []
     story_so_far = ""
     n_clusters = len(clusters)
@@ -700,7 +808,7 @@ def _merge_script_fast(script, group_seconds: float):
             story_so_far = _update_story_context(story_so_far, cluster)
             continue
         try:
-            result = _merge_cluster(cluster, story_so_far)
+            result = _merge_cluster(cluster, story_so_far, glossary_lines)
         except Exception as e:
             logutil.warn(f"⚠️ [script_gen] Gộp cụm {i}/{n_clusters} lỗi ({e}). Giữ nguyên {len(cluster)} dòng gốc.")
             result = None
