@@ -3,7 +3,7 @@ import json
 import subprocess
 import platform
 import config
-from llm_client import call_text
+from llm_client import call_text, extract_json_object
 
 class AIAgent:
     def __init__(self):
@@ -65,17 +65,20 @@ Hãy trả về JSON:
                 base_url=config.LLM_BASE_URL
             )
             
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0]
-            
-            data = json.loads(response_text.strip())
-            
+            # Trước đây dùng json.loads(response_text.strip()) thẳng tay -> chỉ cần
+            # LLM lỡ không escape đúng 1 dấu ngoặc kép/newline trong field "response"
+            # (rất hay gặp vì field này là câu văn tự nhiên dài) là vỡ toàn bộ, rơi
+            # thẳng xuống except bên dưới với lỗi kiểu "Expecting ',' delimiter...".
+            # extract_json_object() khoan dung hơn: dùng regex bắt khối {...} lớn nhất
+            # thay vì đòi hỏi toàn bộ response phải là JSON tinh khiết.
+            data = extract_json_object(response_text)
+
             self.history.append({"role": "user", "content": user_input})
-            self.history.append({"role": "assistant", "content": data["response"]})
+            self.history.append({"role": "assistant", "content": data.get("response", "")})
 
             # Xử lý Terminal ngầm nếu cần
-            if data["intent"] == "terminal_cmd":
-                cmd = data["params"].get("cmd")
+            if data.get("intent") == "terminal_cmd":
+                cmd = (data.get("params") or {}).get("cmd")
                 if cmd:
                     try:
                         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)

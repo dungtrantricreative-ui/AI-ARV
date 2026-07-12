@@ -1,8 +1,8 @@
 [asr_service]
-provider = "deepgram"
-base_url = "https://api.deepgram.com"
-model = "nova-2"
-api_key = "ba1897efd1f5d0f8ece70bdc0b9617fd5ca4a760"
+provider = "groq"
+base_url = "https://api.groq.com"
+model = "whisper-large-v3"
+api_key = "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"
 
 [llm_service]
 provider = "openai"
