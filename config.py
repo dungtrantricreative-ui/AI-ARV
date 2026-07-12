@@ -105,13 +105,6 @@ SCRIPT_DETAILED_TARGET_RATIO = float(_get("script", "detailed_target_ratio", 0.3
 SCRIPT_ULTRA_TARGET_RATIO = float(_get("script", "ultra_target_ratio", 0.55))
 SCRIPT_MIN_TARGET_MINUTES = float(_get("script", "min_target_minutes", 3.0))
 SCRIPT_MAX_TARGET_MINUTES = float(_get("script", "max_target_minutes", 120.0))
-# Số phút ĐẦU kịch bản (theo ref_start) được BẢO VỆ khỏi bước cắt giảm cuối
-# cùng (_trim_script_to_target), bất kể điểm importance. Lý do: các câu mở
-# đầu phim thường là câu "dựng bối cảnh" (giới thiệu nhân vật/bối cảnh) nên
-# tự nhiên bị chấm importance thấp hơn các câu "cao trào/twist" — nếu không
-# bảo vệ, bước cắt giảm sẽ ưu tiên xoá đúng những câu giúp người xem hiểu
-# chuyện gì đang xảy ra ngay từ đầu.
-SCRIPT_PROTECT_INTRO_MINUTES = float(_get("script", "protect_intro_minutes", 3.0))
 
 # --- Director ---
 DIRECTOR_ENABLED = bool(_get("director", "enabled", True))

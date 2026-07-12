@@ -167,7 +167,6 @@ RECAP_MODE_PRESETS = {
         "vision_block_scale": 1.3,
         # Chỉ các dòng importance >= 4 mới được BẢO VỆ tuyệt đối khỏi bị cắt.
         "min_importance_protect": 4,
-        "protect_intro_minutes": 1.5,
         # Bật bước GỘP DÒNG chuyên biệt sau khi có bản nháp (xem _merge_script_fast).
         "enable_merge_pass": True,
         "merge_group_seconds": 75.0,
@@ -179,7 +178,6 @@ RECAP_MODE_PRESETS = {
         "text_block_scale": 1.0,
         "vision_block_scale": 1.0,
         "min_importance_protect": 4,
-        "protect_intro_minutes": 3.0,
         "enable_merge_pass": False,
         "merge_group_seconds": 0.0,
     },
@@ -193,7 +191,6 @@ RECAP_MODE_PRESETS = {
         # Chỉ cắt những dòng "gần như vô nghĩa" (importance == 1), gần như
         # không đụng vào phần còn lại.
         "min_importance_protect": 2,
-        "protect_intro_minutes": 5.0,
         "enable_merge_pass": False,
         "merge_group_seconds": 0.0,
     },
@@ -229,7 +226,7 @@ def _selectivity_reminder() -> str:
             "Đừng quên chấm điểm \"importance\" (1-5) trung thực cho mỗi dòng.")
 
 
-def _trim_script_to_target(script, target_minutes: float, tolerance: float = 1.15, protect_minutes: float = 0.0,
+def _trim_script_to_target(script, target_minutes: float, tolerance: float = 1.15,
                             min_importance_protect: int = 4):
     """Bước biên tập TOÀN CỤC cuối cùng: nếu tổng thời lượng ước tính vượt quá
     (target_minutes * tolerance), cắt bớt các dòng ÍT QUAN TRỌNG NHẤT trước
@@ -246,12 +243,9 @@ def _trim_script_to_target(script, target_minutes: float, tolerance: float = 1.1
     vô nghĩa" ở mức 1, vì mục tiêu của chế độ này là ĐẦY ĐỦ chứ không phải
     NGẮN GỌN).
 
-    protect_minutes: các dòng có ref_start nằm trong N phút ĐẦU kịch bản cũng
-    KHÔNG BAO GIỜ bị cắt, dù importance thấp. Lý do: câu "dựng bối cảnh" mở
-    đầu (giới thiệu nhân vật/bối cảnh cho người chưa xem phim) thường được
-    chấm importance thấp hơn câu "cao trào" theo chính thang điểm đã yêu cầu
-    model dùng — nếu không bảo vệ riêng, bước cắt này sẽ luôn ưu tiên xoá
-    đúng phần nội dung giúp người xem hiểu chuyện gì đang xảy ra ngay từ đầu.
+    LƯU Ý: không còn cơ chế "bảo vệ N phút đầu" riêng — mọi dòng, kể cả ở
+    đầu kịch bản, đều được xét cắt bình đẳng theo đúng điểm importance như
+    mọi dòng khác trong toàn bộ kịch bản.
     """
     if not target_minutes or target_minutes <= 0 or not script:
         return script
@@ -266,15 +260,12 @@ def _trim_script_to_target(script, target_minutes: float, tolerance: float = 1.1
     if total <= cap_sec:
         return script
 
-    protect_sec = max(0.0, protect_minutes) * 60.0
     min_protect = int(min_importance_protect)
 
     # Sắp theo importance tăng dần, cùng importance thì ước lượng thời lượng
     # giảm dần trước (ưu tiên cắt câu vừa ít quan trọng vừa dài, hiệu quả hơn).
-    # Bỏ qua hoàn toàn các dòng nằm trong vùng "bảo vệ mở đầu" (protect_sec).
     removable_idx = sorted(
-        (i for i, l in enumerate(script)
-         if int(l.get("importance", 3) or 3) < min_protect and float(l.get("ref_start", 0.0)) >= protect_sec),
+        (i for i, l in enumerate(script) if int(l.get("importance", 3) or 3) < min_protect),
         key=lambda i: (int(script[i].get("importance", 3) or 3), -est_duration(script[i])),
     )
     to_drop = set()
@@ -285,10 +276,9 @@ def _trim_script_to_target(script, target_minutes: float, tolerance: float = 1.1
         to_drop.add(i)
 
     kept = [l for i, l in enumerate(script) if i not in to_drop]
-    protect_note = f", bảo vệ {protect_minutes:.0f} phút đầu" if protect_sec > 0 else ""
     logutil.stage(f"[script_gen] Biên tập toàn cục: kịch bản ước tính ~{ (total + sum(est_duration(script[i]) for i in to_drop)) / 60:.1f} phút "
           f"> mục tiêu {target_minutes:.0f} phút -> cắt {len(to_drop)}/{len(script)} dòng ít quan trọng nhất "
-          f"(giữ nguyên mọi dòng importance>={min_protect}{protect_note}). Còn lại ước tính ~{total / 60:.1f} phút.")
+          f"(giữ nguyên mọi dòng importance>={min_protect}). Còn lại ước tính ~{total / 60:.1f} phút.")
     return kept
 
 
@@ -367,10 +357,9 @@ def generate_script(transcript, scenes, out_path: Path, video_path: Path = None)
 
     target_minutes = _resolve_target_minutes(mode, preset, scenes, video_path)
     if target_minutes and script:
-        protect_minutes = preset.get("protect_intro_minutes", getattr(config, "SCRIPT_PROTECT_INTRO_MINUTES", 0.0))
         min_importance_protect = preset.get("min_importance_protect", 4)
         script = _trim_script_to_target(
-            script, target_minutes, protect_minutes=protect_minutes,
+            script, target_minutes,
             min_importance_protect=min_importance_protect,
         )
 
