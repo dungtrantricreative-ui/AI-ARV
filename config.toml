@@ -1,5 +1,5 @@
 [asr_service]
-provider = "groq"
+provider = "deepgram"
 base_url = "https://api.deepgram.com"
 model = "nova-2"
 api_key = "ba1897efd1f5d0f8ece70bdc0b9617fd5ca4a760"
