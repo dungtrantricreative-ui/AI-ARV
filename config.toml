@@ -2,7 +2,7 @@
 provider = "groq"
 base_url = "https://api.groq.com"
 model = "whisper-large-v3"
-api_key = "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"
+api_key = "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"
 
 [llm_service]
 provider = "openai"
